@@ -1,0 +1,97 @@
+import { resolve } from "node:path";
+
+import { z } from "zod";
+
+export interface CliArgs {
+  from: string;
+  appUrl: string;
+  apiUrl: string;
+  orgId?: string;
+  projId?: string;
+  help: boolean;
+}
+
+const urlSchema = z.string().url();
+
+const requireValue = (argv: string[], index: number, flag: string): string => {
+  const value = argv[index + 1];
+  if (!value || value.startsWith("--")) {
+    throw new Error(`${flag} requires a value.`);
+  }
+  return value;
+};
+
+const trimTrailingSlash = (value: string): string => value.replace(/\/+$/, "");
+
+export const parseArgs = (
+  argv: string[],
+  cwd: string = process.cwd(),
+): CliArgs => {
+  const parsed: CliArgs = {
+    from: cwd,
+    appUrl: "https://app.confident-ai.com",
+    apiUrl: "https://api.confident-ai.com",
+    help: false,
+  };
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const flag = argv[index];
+    switch (flag) {
+      case "--from":
+        parsed.from = requireValue(argv, index, flag);
+        index += 1;
+        break;
+      case "--app-url":
+        parsed.appUrl = requireValue(argv, index, flag);
+        index += 1;
+        break;
+      case "--api-url":
+        parsed.apiUrl = requireValue(argv, index, flag);
+        index += 1;
+        break;
+      case "--org-id":
+        parsed.orgId = requireValue(argv, index, flag);
+        index += 1;
+        break;
+      case "--proj-id":
+        parsed.projId = requireValue(argv, index, flag);
+        index += 1;
+        break;
+      case "--help":
+      case "-h":
+        parsed.help = true;
+        break;
+      default:
+        throw new Error(`Unknown argument: ${flag ?? ""}`);
+    }
+  }
+
+  parsed.from = resolve(cwd, parsed.from);
+  parsed.appUrl = trimTrailingSlash(urlSchema.parse(parsed.appUrl));
+  parsed.apiUrl = trimTrailingSlash(urlSchema.parse(parsed.apiUrl));
+  return parsed;
+};
+
+export const helpText = `Confident Setup Wizard
+
+Usage: confident-setup [options]
+
+Options:
+  --from <path>     Project directory (default: current directory)
+  --app-url <url>   Confident app URL (default: https://app.confident-ai.com)
+  --api-url <url>   Confident API URL (default: https://api.confident-ai.com)
+  --org-id <id>     Require this organization
+  --proj-id <id>    Select this project
+  -h, --help        Show help
+`;
+
+export const requireInteractiveTty = (
+  stdinIsTty: boolean | undefined = process.stdin.isTTY,
+  stdoutIsTty: boolean | undefined = process.stdout.isTTY,
+): void => {
+  if (!stdinIsTty || !stdoutIsTty) {
+    throw new Error(
+      "Confident Setup Wizard requires an interactive TTY. Run it directly in a terminal.",
+    );
+  }
+};

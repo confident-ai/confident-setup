@@ -1,0 +1,7 @@
+{
+  "main": "dist/sea.cjs",
+  "output": "dist/confident-setup.blob",
+  "disableExperimentalSEAWarning": true,
+  "useSnapshot": false,
+  "useCodeCache": false
+}

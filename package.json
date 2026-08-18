@@ -1,0 +1,56 @@
+{
+  "name": "confident-setup",
+  "version": "0.1.0",
+  "description": "Interactive Confident AI evaluation setup wizard",
+  "type": "module",
+  "bin": {
+    "confident-setup": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "rolldown -c",
+    "build:sea": "node scripts/build-sea.mjs",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "confident-ai",
+    "deepeval",
+    "evaluation",
+    "cli"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.11"
+  },
+  "dependencies": {
+    "@clack/prompts": "latest",
+    "clipboardy": "latest",
+    "open": "latest",
+    "picocolors": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@eslint/js": "latest",
+    "@types/node": "latest",
+    "eslint": "latest",
+    "postject": "latest",
+    "prettier": "latest",
+    "rolldown": "latest",
+    "typescript": "latest",
+    "typescript-eslint": "latest",
+    "vitest": "latest"
+  }
+}
