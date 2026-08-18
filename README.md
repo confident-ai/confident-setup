@@ -6,16 +6,18 @@ helps a coding agent build and run a multi-level evaluation.
 
 ## Run
 
-Node.js 20.11 or newer and an interactive terminal are required.
+Run the checksum-verified standalone release from an interactive terminal:
 
 ```sh
-npx confident-setup
+curl -fsSL "https://www.confident-ai.com/wizard/setup.sh" | sh
 ```
 
 Options:
 
 ```text
---from <path>     Project directory (default: current directory)
+--from <source>   Setup entry point attribution (default: direct)
+--project-dir <path>
+                    Project directory (default: current directory)
 --app-url <url>   Confident app URL
 --api-url <url>   Confident API URL
 --org-id <id>     Require this organization
@@ -51,6 +53,8 @@ starting full-permission execution.
 - API keys are never included in prompts, telemetry, command arguments, or
   result files.
 - Built-in agents receive the key only through their child-process environment.
+- Other setup modes let DeepEval load the key from the ignored `.env.local`
+  without exposing its value to the agent prompt.
 - The canonical prompt forbids reading `.env.local`.
 - Setup telemetry is best-effort, redacted, contains no secrets, and never
   blocks setup. Disable it with `CONFIDENT_TELEMETRY_DISABLED=1`.

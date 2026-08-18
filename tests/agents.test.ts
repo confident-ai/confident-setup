@@ -27,6 +27,9 @@ describe("agent arguments", () => {
     expect(buildAgentInvocation(codex, "full", "prompt").args).toContain(
       "danger-full-access",
     );
+    expect(buildAgentInvocation(codex, "full", "prompt").args).toContain(
+      "--json",
+    );
   });
 });
 
@@ -63,5 +66,6 @@ describe("agent checks and execution", () => {
     expect(invocation.args.join(" ")).not.toContain("super-secret");
     expect(options.env?.CONFIDENT_API_KEY).toBe("super-secret");
     expect(options.env?.CONFIDENT_SETUP_RESULT_FILE).toBe("/tmp/result.json");
+    expect(options.stdio).toBe("pipe");
   });
 });

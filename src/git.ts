@@ -70,12 +70,16 @@ export const inspectGit = async (
 };
 
 export const describeGitStatus = (status: GitStatus): string => {
-  if (!status.isRepository) return "This directory is not a Git repository.";
+  if (!status.isRepository) {
+    return "The wizard may edit files without Git history to help review them.";
+  }
   if (!status.dirty) return "Git working tree is clean.";
   const remainder = status.totalChanges - status.files.length;
   return [
-    `${status.totalChanges} uncommitted change(s):`,
-    ...status.files.map((file) => `  ${file}`),
-    ...(remainder > 0 ? [`  …and ${remainder} more`] : []),
+    ...status.files.map(
+      (file, index) =>
+        `${index + 1}. ${file.length > 3 ? file.slice(3) : file}`,
+    ),
+    ...(remainder > 0 ? [`…plus ${remainder} more`] : []),
   ].join("\n");
 };

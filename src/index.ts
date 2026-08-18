@@ -21,6 +21,8 @@ main().catch((error: unknown) => {
     return;
   }
   const message = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`${pc.red("Confident Setup Wizard failed:")} ${message}\n`);
+  process.stderr.write(
+    `${pc.red("Confident AI Setup Wizard failed:")} ${message}\n`,
+  );
   process.exitCode = 1;
 });

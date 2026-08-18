@@ -40,8 +40,35 @@ describe("telemetry redaction", () => {
         .mockRejectedValue(new Error("offline")),
       disabled: false,
     });
+    telemetry.setEventToken("event-token");
     await expect(
-      telemetry.send({ event: "setup_finished" }),
+      telemetry.send({ event: "setup_completed" }),
     ).resolves.toBeUndefined();
+  });
+
+  it("authenticates event delivery with the pairing event token", async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(new Response(null, { status: 202 }));
+    const telemetry = new SetupTelemetry("https://api.example", {
+      fetch,
+      disabled: false,
+    });
+    telemetry.setEventToken("event-token");
+
+    await telemetry.send({
+      event: "setup_completed",
+      step: "evaluation",
+      result: "succeeded",
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.example/cli/setup/events",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          authorization: "Bearer event-token",
+        }),
+      }),
+    );
   });
 });

@@ -1,22 +1,40 @@
 const SENSITIVE_KEY =
   /api.?key|authorization|token|secret|password|email|path|prompt|command|file/i;
-const SECRET_VALUE = /(Bearer\s+\S+|sk-[A-Za-z0-9_-]+|[A-Za-z]+_[A-Za-z0-9_-]{24,})/i;
-
-export type TelemetryValue =
-  | string
-  | number
-  | boolean
-  | null
-  | TelemetryValue[]
-  | { [key: string]: TelemetryValue };
+const SECRET_VALUE =
+  /(Bearer\s+\S+|sk-[A-Za-z0-9_-]+|[A-Za-z]+_[A-Za-z0-9_-]{24,})/i;
 
 export interface TelemetryEvent {
-  event: string;
-  properties?: Record<string, TelemetryValue>;
+  event:
+    | "wizard_started"
+    | "authentication_started"
+    | "authentication_completed"
+    | "setup_started"
+    | "setup_completed"
+    | "setup_failed";
+  step?:
+    | "bootstrap"
+    | "authentication"
+    | "environment_detection"
+    | "dependency_installation"
+    | "configuration"
+    | "evaluation";
+  result?: "started" | "succeeded" | "failed" | "cancelled";
+  errorCode?:
+    | "unknown"
+    | "network"
+    | "permission_denied"
+    | "invalid_configuration"
+    | "command_failed"
+    | "timeout";
+  elapsedMs?: number;
 }
 
-export const redactTelemetry = (value: unknown): TelemetryValue => {
-  if (value === null || typeof value === "number" || typeof value === "boolean") {
+export const redactTelemetry = (value: unknown): unknown => {
+  if (
+    value === null ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
     return value;
   }
   if (typeof value === "string") {
@@ -39,6 +57,7 @@ export class SetupTelemetry {
   readonly #url: string;
   readonly #fetch: typeof globalThis.fetch;
   readonly #disabled: boolean;
+  #eventToken: string | undefined;
 
   constructor(
     apiUrl: string,
@@ -53,12 +72,19 @@ export class SetupTelemetry {
       options.disabled ?? process.env.CONFIDENT_TELEMETRY_DISABLED === "1";
   }
 
+  setEventToken(eventToken: string | undefined): void {
+    this.#eventToken = eventToken;
+  }
+
   async send(event: TelemetryEvent): Promise<void> {
-    if (this.#disabled) return;
+    if (this.#disabled || !this.#eventToken) return;
     try {
       await this.#fetch(this.#url, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          authorization: `Bearer ${this.#eventToken}`,
+          "content-type": "application/json",
+        },
         body: JSON.stringify(redactTelemetry(event)),
       });
     } catch {

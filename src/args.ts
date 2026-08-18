@@ -4,6 +4,7 @@ import { z } from "zod";
 
 export interface CliArgs {
   from: string;
+  projectDir: string;
   appUrl: string;
   apiUrl: string;
   orgId?: string;
@@ -12,6 +13,12 @@ export interface CliArgs {
 }
 
 const urlSchema = z.string().url();
+const sourceSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .regex(/^[a-zA-Z0-9_-]+$/);
 
 const requireValue = (argv: string[], index: number, flag: string): string => {
   const value = argv[index + 1];
@@ -28,7 +35,8 @@ export const parseArgs = (
   cwd: string = process.cwd(),
 ): CliArgs => {
   const parsed: CliArgs = {
-    from: cwd,
+    from: "direct",
+    projectDir: cwd,
     appUrl: "https://app.confident-ai.com",
     apiUrl: "https://api.confident-ai.com",
     help: false,
@@ -39,6 +47,10 @@ export const parseArgs = (
     switch (flag) {
       case "--from":
         parsed.from = requireValue(argv, index, flag);
+        index += 1;
+        break;
+      case "--project-dir":
+        parsed.projectDir = requireValue(argv, index, flag);
         index += 1;
         break;
       case "--app-url":
@@ -66,18 +78,21 @@ export const parseArgs = (
     }
   }
 
-  parsed.from = resolve(cwd, parsed.from);
+  parsed.projectDir = resolve(cwd, parsed.projectDir);
+  parsed.from = sourceSchema.parse(parsed.from);
   parsed.appUrl = trimTrailingSlash(urlSchema.parse(parsed.appUrl));
   parsed.apiUrl = trimTrailingSlash(urlSchema.parse(parsed.apiUrl));
   return parsed;
 };
 
-export const helpText = `Confident Setup Wizard
+export const helpText = `Confident AI Setup Wizard
 
 Usage: confident-setup [options]
 
 Options:
-  --from <path>     Project directory (default: current directory)
+  --from <source>   Setup entry point attribution (default: direct)
+  --project-dir <path>
+                      Project directory (default: current directory)
   --app-url <url>   Confident app URL (default: https://app.confident-ai.com)
   --api-url <url>   Confident API URL (default: https://api.confident-ai.com)
   --org-id <id>     Require this organization

@@ -32,6 +32,8 @@ describe("setup result validation", () => {
         testRunId: undefined,
       }),
     ).toThrow("failed setup");
-    expect(() => parseSetupResult({ ...validResult, apiKey: "secret" })).toThrow();
+    expect(() =>
+      parseSetupResult({ ...validResult, apiKey: "secret" }),
+    ).toThrow();
   });
 });

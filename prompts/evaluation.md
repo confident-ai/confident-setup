@@ -7,13 +7,15 @@ integration.
 ## Safety and boundaries
 
 - Never open, print, parse, search, or otherwise read `.env.local`.
-- `CONFIDENT_API_KEY` is already injected into your process environment. Use it
+- `CONFIDENT_API_KEY` is already available to DeepEval through the process
+  environment or the project dotenv configured by the wizard. Use it only
   through the SDK; never copy it into source, output, commands, logs, or result
   files.
 - Inspect the application, package manifests, tests, and existing evaluation
   code before editing. Preserve the project's conventions.
-- Ask the user before generating synthetic dataset rows or running evaluations
-  that invoke paid models. Explain the likely action and cost source.
+- Obtain user consent before generating synthetic dataset rows or running
+  evaluations that invoke paid models. If the runtime context records consent
+  already gathered by the wizard, honor it without asking again.
 - Do not add tracing unless the evaluation genuinely needs application spans,
   traces, or threads. Do not turn this task into observability setup.
 - Make focused changes only. Do not commit or push.

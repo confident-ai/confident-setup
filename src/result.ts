@@ -7,9 +7,7 @@ export const setupResultSchema = z
     status: z.enum(["completed", "partial", "failed"]),
     changedFiles: z.array(z.string().min(1)),
     sdks: z.array(z.enum(["deepeval-python", "deepeval-typescript"])).min(1),
-    levels: z
-      .array(z.enum(["test-case", "span", "trace", "thread"]))
-      .min(1),
+    levels: z.array(z.enum(["test-case", "span", "trace", "thread"])).min(1),
     datasetSource: z.string().min(1),
     metrics: z.array(z.string().min(1)).max(12),
     rerunCommand: z.string().min(1),

@@ -21,9 +21,9 @@ const temporaryDirectory = async (): Promise<string> => {
 
 afterEach(async () => {
   await Promise.all(
-    directories.splice(0).map((directory) =>
-      rm(directory, { recursive: true, force: true }),
-    ),
+    directories
+      .splice(0)
+      .map((directory) => rm(directory, { recursive: true, force: true })),
   );
 });
 
@@ -45,7 +45,9 @@ describe("environment merge", () => {
     expect(await readFile(join(directory, ".env.local"), "utf8")).toContain(
       'CONFIDENT_API_KEY="secret"',
     );
-    expect((await stat(join(directory, ".env.local"))).mode & 0o777).toBe(0o600);
+    expect((await stat(join(directory, ".env.local"))).mode & 0o777).toBe(
+      0o600,
+    );
   });
 });
 
@@ -55,11 +57,7 @@ describe("gitignore merge", () => {
   it("appends .env.local with a safe newline", async () => {
     const directory = await temporaryDirectory();
     await writeFile(join(directory, ".gitignore"), "dist/");
-    await ensureEnvLocalIgnored(
-      directory,
-      runner,
-      async () => false,
-    );
+    await ensureEnvLocalIgnored(directory, runner, async () => false);
     expect(await readFile(join(directory, ".gitignore"), "utf8")).toBe(
       "dist/\n.env.local\n",
     );

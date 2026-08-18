@@ -3,9 +3,12 @@ import { describe, expect, it } from "vitest";
 import { parseArgs, requireInteractiveTty } from "../src/args.js";
 
 describe("parseArgs", () => {
-  it("uses production defaults and resolves --from", () => {
-    expect(parseArgs(["--from", "app"], "/repo")).toMatchObject({
-      from: "/repo/app",
+  it("uses production defaults and separates source from project path", () => {
+    expect(
+      parseArgs(["--from", "in_app_setup", "--project-dir", "app"], "/repo"),
+    ).toMatchObject({
+      from: "in_app_setup",
+      projectDir: "/repo/app",
       appUrl: "https://app.confident-ai.com",
       apiUrl: "https://api.confident-ai.com",
       help: false,

@@ -29,6 +29,7 @@ export type AgentRunner = (
     env?: NodeJS.ProcessEnv;
     stdio?: "inherit" | "pipe";
     timeoutMs?: number;
+    onStdoutLine?: (line: string) => void;
   },
 ) => Promise<{ stdout: string }>;
 
@@ -52,12 +53,18 @@ export const buildAgentInvocation = (
               prompt,
               "--permission-mode",
               "plan",
+              "--no-session-persistence",
+              "--tools",
+              "",
               "--output-format",
               "json",
             ]
           : [
               "-p",
               prompt,
+              "--no-session-persistence",
+              "--permission-mode",
+              "bypassPermissions",
               "--dangerously-skip-permissions",
               "--output-format",
               "stream-json",
@@ -69,24 +76,27 @@ export const buildAgentInvocation = (
     command: agent.command,
     args: [
       "exec",
+      "--json",
+      "--ephemeral",
       "--sandbox",
       permission === "read-only" ? "read-only" : "danger-full-access",
+      ...(permission === "full"
+        ? ["--dangerously-bypass-approvals-and-sandbox"]
+        : []),
       "--skip-git-repo-check",
       prompt,
     ],
   };
 };
 
-export const getAuthInvocation = (
-  agent: AgentDefinition,
-): AgentInvocation => ({
+export const getAuthInvocation = (agent: AgentDefinition): AgentInvocation => ({
   command: agent.command,
   args: agent.kind === "claude" ? ["auth", "status"] : ["login", "status"],
 });
 
 export const runAgent: AgentRunner = (
   invocation,
-  { cwd, env, stdio = "pipe", timeoutMs = 30_000 },
+  { cwd, env, stdio = "pipe", timeoutMs = 30_000, onStdoutLine },
 ) =>
   new Promise((resolve, reject) => {
     const child = spawn(invocation.command, invocation.args, {
@@ -96,9 +106,19 @@ export const runAgent: AgentRunner = (
     });
     let stdout = "";
     let stderr = "";
+    let stdoutLineBuffer = "";
     if (stdio === "pipe") {
       child.stdout?.on("data", (chunk: Buffer) => {
-        stdout += chunk.toString();
+        const text = chunk.toString();
+        stdout += text;
+        stdoutLineBuffer += text;
+        let newline = stdoutLineBuffer.indexOf("\n");
+        while (newline >= 0) {
+          const line = stdoutLineBuffer.slice(0, newline).trim();
+          stdoutLineBuffer = stdoutLineBuffer.slice(newline + 1);
+          if (line) onStdoutLine?.(line);
+          newline = stdoutLineBuffer.indexOf("\n");
+        }
       });
       child.stderr?.on("data", (chunk: Buffer) => {
         stderr += chunk.toString();
@@ -114,12 +134,20 @@ export const runAgent: AgentRunner = (
     });
     child.on("exit", (code, signal) => {
       clearTimeout(timer);
+      const finalLine = stdoutLineBuffer.trim();
+      if (finalLine) onStdoutLine?.(finalLine);
       if (code === 0) {
         resolve({ stdout });
       } else {
+        const detail = stderr
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .find(Boolean);
         reject(
           new Error(
-            `${invocation.command} exited with ${signal ?? code}: ${stderr.trim()}`,
+            `${invocation.command} exited with ${signal ?? code}${
+              detail ? `: ${detail.slice(0, 300)}` : ""
+            }`,
           ),
         );
       }
@@ -191,6 +219,7 @@ export const executeAgent = async (
   apiKey: string,
   resultFile: string,
   runner: AgentRunner = runAgent,
+  onProgressLine?: (line: string) => void,
 ): Promise<void> => {
   await runner(buildAgentInvocation(agent, "full", prompt), {
     cwd,
@@ -199,7 +228,8 @@ export const executeAgent = async (
       CONFIDENT_API_KEY: apiKey,
       CONFIDENT_SETUP_RESULT_FILE: resultFile,
     },
-    stdio: "inherit",
+    stdio: "pipe",
     timeoutMs: 30 * 60_000,
+    ...(onProgressLine ? { onStdoutLine: onProgressLine } : {}),
   });
 };

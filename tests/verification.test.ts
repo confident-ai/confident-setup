@@ -18,8 +18,7 @@ describe("test run verification", () => {
       ),
     ).resolves.toEqual({
       testRunId: "run/id",
-      testRunUrl:
-        "https://app.example/project/project%2Fid/test-runs/run%2Fid",
+      testRunUrl: "https://app.example/project/project%2Fid/test-runs/run%2Fid",
     });
     expect(fetch).toHaveBeenCalledWith(
       "https://api.example/v1/test-runs/run%2Fid",
@@ -44,8 +43,8 @@ describe("test run verification", () => {
   });
 
   it("constructs the canonical project permalink", () => {
-    expect(
-      buildTestRunUrl("https://app.example", "project", "run"),
-    ).toBe("https://app.example/project/project/test-runs/run");
+    expect(buildTestRunUrl("https://app.example", "project", "run")).toBe(
+      "https://app.example/project/project/test-runs/run",
+    );
   });
 });
