@@ -255,18 +255,20 @@ export const executeAgent = async (
   agent: AgentDefinition,
   cwd: string,
   prompt: string,
-  apiKey: string,
+  apiKey: string | undefined,
   resultFile: string,
   runner: AgentRunner = runAgent,
   onProgressLine?: (line: string) => void,
 ): Promise<void> => {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    CONFIDENT_SETUP_RESULT_FILE: resultFile,
+  };
+  if (apiKey) env.CONFIDENT_API_KEY = apiKey;
+  else delete env.CONFIDENT_API_KEY;
   await runner(buildAgentInvocation(agent, "full", prompt), {
     cwd,
-    env: {
-      ...process.env,
-      CONFIDENT_API_KEY: apiKey,
-      CONFIDENT_SETUP_RESULT_FILE: resultFile,
-    },
+    env,
     stdio: "pipe",
     timeoutMs: 30 * 60_000,
     ...(onProgressLine ? { onStdoutLine: onProgressLine } : {}),

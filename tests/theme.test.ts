@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   banner,
+  localWizardSteps,
   stepHeading,
   stepRoadmap,
   WIZARD_STEP_COUNT,
@@ -18,6 +19,10 @@ describe("welcome banner", () => {
       "  /$$$$$$                       /$$$$$$  /$$       /$$                       /$$            /$$$$$$  /$$$$$$",
     );
     expect(banner(120)).toContain("sign in → project");
+    expect(banner(120, false)).toContain("Welcome to");
+    expect(banner(120, false)).toContain("DeepEval");
+    expect(banner(120, false)).toContain("judge model → method → run");
+    expect(banner(120, false)).not.toContain("the evals cloud platform");
   });
 
   it("keeps the money type at narrower widths instead of another font", () => {
@@ -34,6 +39,11 @@ describe("welcome banner", () => {
 
   it("names every step in the roadmap", () => {
     expect(stepRoadmap().split(" → ")).toHaveLength(WIZARD_STEP_COUNT);
+    expect(stepRoadmap(localWizardSteps).split(" → ")).toEqual([
+      "judge model",
+      "method",
+      "run",
+    ]);
   });
 });
 
@@ -48,6 +58,9 @@ describe("wizard steps", () => {
   it("accepts a title that depends on the chosen setup mode", () => {
     expect(stepHeading(6, "Launch the detected agent")).toContain(
       "Step 6 of 6  Launch the detected agent",
+    );
+    expect(stepHeading(3, undefined, localWizardSteps)).toContain(
+      "Step 3 of 3  Run the evaluation",
     );
   });
 });

@@ -7,10 +7,13 @@ integration.
 ## Safety and boundaries
 
 - Never open, print, parse, search, or otherwise read `.env.local`.
-- `CONFIDENT_API_KEY` is already available to DeepEval through the process
-  environment or the project dotenv configured by the wizard. Use it only
-  through the SDK; never copy it into source, output, commands, logs, or result
-  files.
+- When the runtime context says Confident AI is configured, `CONFIDENT_API_KEY`
+  is already available to DeepEval through the process environment or the
+  project dotenv. Use it only through the SDK; never copy it into source,
+  output, commands, logs, or result files.
+- When the runtime context says the run is local-only, do not upload to
+  Confident AI, do not read or set `CONFIDENT_API_KEY`, and do not produce a
+  test run ID.
 - Judge-model credentials reach DeepEval the same way. The runtime context below
   names the configured provider; select metrics that its judge can serve, and
   never read, print, or hardcode provider keys. When no judge is configured,
@@ -46,9 +49,10 @@ Python SDK and/or DeepEval TypeScript SDK, whichever fits this repository.
 5. Avoid redundant metrics across levels. Each metric must test a distinct
    failure mode and have the fields it requires. Prefer deterministic metrics
    where they answer the question; ask before any paid model-judge run.
-6. Add one documented command that reruns the same evaluation and uploads a
-   Confident AI test run. Execute safe local checks. Run the evaluation only
-   after satisfying the consent rules above.
+6. Add one documented command that reruns the same evaluation. If Confident AI
+   is configured, that command should also upload a Confident AI test run.
+   Execute safe local checks. Run the evaluation only after satisfying the
+   consent rules above.
 7. If the repository already has evaluation infrastructure, extend it instead
    of creating a parallel framework.
 
@@ -80,8 +84,9 @@ Allowed `status` values are `completed`, `partial`, and `failed`. Allowed SDKs
 are `deepeval-python` and `deepeval-typescript`. Allowed levels are `test-case`,
 `span`, `trace`, and `thread`. `changedFiles`, `sdks`, `levels`,
 `datasetSource`, `metrics`, and `rerunCommand` are always required. A completed
-result requires `testRunId`; a failed result requires at least one `errors`
-entry. Use repository-relative paths and never include secret values.
+result requires `testRunId` when Confident AI is configured; omit `testRunId`
+and `testRunUrl` for a local-only run. A failed result requires at least one
+`errors` entry. Use repository-relative paths and never include secret values.
 
 If consent is needed or execution cannot finish, leave the implementation
 rerunnable and report `partial` with concise errors and no invented test run ID.

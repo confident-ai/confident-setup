@@ -12,6 +12,7 @@ export const EVALUATION_DOCS_URL =
   "https://www.confident-ai.com/docs/llm-evaluation";
 export const MANUAL_QUICKSTART_URL =
   "https://www.confident-ai.com/docs/llm-evaluation/quickstart";
+export const DEEPEVAL_DOCS_URL = "https://deepeval.com/docs/getting-started";
 
 /** "A or B", "A, B, or C" — as many agents as the machine has installed. */
 export const listLabels = (
@@ -85,7 +86,10 @@ export const fullPermissionWarning = (agentLabel: string): string =>
 
 export const deferredSetupMessage = (
   mode: Exclude<SetupMode, "built-in">,
+  useConfidentAi = true,
 ): string =>
   mode === "manual"
-    ? `Finish the evaluation later with ${MANUAL_QUICKSTART_URL}`
-    : "Paste the supplied prompt into your coding agent. Return here after it finishes if you want the wizard to verify the test run.";
+    ? `Finish the evaluation later with ${
+        useConfidentAi ? MANUAL_QUICKSTART_URL : DEEPEVAL_DOCS_URL
+      }`
+    : "Paste the supplied prompt into your coding agent. Return here after it finishes.";

@@ -70,42 +70,69 @@ const WORDMARK_TIERS = [
   { columns: 18, rows: WORDMARK_MARK },
 ] as const;
 
-export const wizardSteps = {
+export type WizardStepInfo = { title: string; short: string };
+
+export const wizardSteps: Record<number, WizardStepInfo> = {
   1: { title: "Sign in", short: "sign in" },
   2: { title: "Choose project", short: "project" },
   3: { title: "Save credentials", short: "credentials" },
   4: { title: "Set up the judge model", short: "judge model" },
   5: { title: "Choose how to add the evaluation", short: "method" },
-  6: { title: "Run and verify the evaluation", short: "verify" },
-} as const;
+  6: { title: "Run and verify the evaluation", short: "run" },
+};
 
-export type WizardStep = keyof typeof wizardSteps;
+export const localWizardSteps: Record<number, WizardStepInfo> = {
+  1: { title: "Set up the judge model", short: "judge model" },
+  2: { title: "Choose how to add the evaluation", short: "method" },
+  3: { title: "Run the evaluation", short: "run" },
+};
+
+export const wizardStepsFor = (
+  useConfidentAi: boolean,
+): Record<number, WizardStepInfo> =>
+  useConfidentAi ? wizardSteps : localWizardSteps;
 
 export const WIZARD_STEP_COUNT = Object.keys(wizardSteps).length;
 
-export const stepRoadmap = (): string =>
-  Object.values(wizardSteps)
+export const stepRoadmap = (
+  steps: Record<number, WizardStepInfo> = wizardSteps,
+): string =>
+  Object.values(steps)
     .map((step) => step.short)
     .join(" → ");
 
-export const stepHeading = (current: WizardStep, detail?: string): string => {
-  const title = detail ?? wizardSteps[current].title;
-  return `${brand(`Step ${current} of ${WIZARD_STEP_COUNT}`)}  ${title}`;
+export const stepHeading = (
+  current: number,
+  detail?: string,
+  steps: Record<number, WizardStepInfo> = wizardSteps,
+): string => {
+  const title = detail ?? steps[current]?.title;
+  if (!title) throw new Error(`Unknown wizard step: ${current}`);
+  return `${brand(`Step ${current} of ${Object.keys(steps).length}`)}  ${title}`;
 };
 
 /** DeepEval `render_login_message`, minus its login-specific wording. */
-export const welcomeMessage = (): string =>
-  `🥳 Welcome to ${brand("Confident AI")}, the evals cloud platform 🏡❤️`;
+export const welcomeMessage = (useConfidentAi = true): string =>
+  useConfidentAi
+    ? `🥳 Welcome to ${brand("Confident AI")}, the evals cloud platform 🏡❤️`
+    : `🥳 Welcome to ${brand("DeepEval")} evaluation setup`;
 
 /** The `deepeval login` banner, stepped down to fit the terminal width. */
 export const banner = (
   columns: number = process.stdout.columns ?? 80,
+  useConfidentAi = true,
 ): string => {
-  const tier = WORDMARK_TIERS.find((candidate) => columns >= candidate.columns);
-  const wordmark = tier
-    ? tier.rows.map((row) => brand(row))
-    : [brand(pc.bold("CONFIDENT AI"))];
-  return [welcomeMessage(), "", ...wordmark, "", muted(stepRoadmap())].join(
-    "\n",
-  );
+  const steps = wizardStepsFor(useConfidentAi);
+  const lines = [welcomeMessage(useConfidentAi), ""];
+  if (useConfidentAi) {
+    const tier = WORDMARK_TIERS.find(
+      (candidate) => columns >= candidate.columns,
+    );
+    const wordmark = tier
+      ? tier.rows.map((row) => brand(row))
+      : [brand(pc.bold("CONFIDENT AI"))];
+    lines.push(...wordmark, "");
+  }
+  lines.push(muted(stepRoadmap(steps)));
+  return lines.join("\n");
 };

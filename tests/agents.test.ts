@@ -93,4 +93,21 @@ describe("agent checks and execution", () => {
     expect(options.env?.CONFIDENT_SETUP_RESULT_FILE).toBe("/tmp/result.json");
     expect(options.stdio).toBe("pipe");
   });
+
+  it("omits CONFIDENT_API_KEY for local runs", async () => {
+    const runner: AgentRunner = vi.fn().mockResolvedValue({ stdout: "" });
+    vi.stubEnv("CONFIDENT_API_KEY", "existing");
+    await executeAgent(
+      supportedAgents[1]!,
+      "/repo",
+      "safe prompt",
+      undefined,
+      "/tmp/result.json",
+      runner,
+    );
+    expect(vi.mocked(runner).mock.calls[0]?.[1]?.env?.CONFIDENT_API_KEY).toBe(
+      undefined,
+    );
+    vi.unstubAllEnvs();
+  });
 });

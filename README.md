@@ -6,16 +6,27 @@ helps a coding agent build and run a multi-level evaluation.
 
 ## Run
 
-Run the checksum-verified standalone release from an interactive terminal:
+Run the checksum-verified standalone release from an interactive terminal.
+
+From Confident AI:
 
 ```sh
 curl -fsSL "https://www.confident-ai.com/wizard/setup.sh" | sh
 ```
 
+From DeepEval (asks whether to use Confident AI first):
+
+```sh
+curl -fsSL "https://deepeval.com/wizard/setup.sh" | sh
+```
+
+Yes still signs in, saves an API key, and adds the evaluation. No skips the
+cloud project and still sets up a local DeepEval evaluation.
+
 Options:
 
 ```text
---from <source>        Setup entry point attribution (default: direct)
+--from <source>        Setup entry point (deepeval asks first; default: direct)
 --project-dir <path>   Project directory (default: current directory)
 --app-url <url>        Confident app URL
 --api-url <url>        Confident API URL
@@ -28,7 +39,9 @@ The default services are `https://app.confident-ai.com` and
 
 ## What it does
 
-The wizard runs six labeled steps and shows the whole route up front.
+The wizard runs six labeled steps and shows the whole route up front. A
+DeepEval user who declines Confident AI skips sign-in, project, and API key,
+then still sets the judge model, adds the evaluation, and runs it locally.
 
 1. Checks Git and asks explicitly before continuing in a dirty or non-Git
    directory.
@@ -100,6 +113,8 @@ built CLI at it; otherwise pass `--project-dir` to any throwaway folder.
 
 `npm run build:sea` creates a Node Single Executable Application in `release/`.
 Tagged releases build darwin/linux x64/arm64 archives and `SHA256SUMS`.
+Host `scripts/deepeval-setup.sh` at `https://deepeval.com/wizard/setup.sh` so
+that entry passes `--from deepeval`.
 
 ## License
 

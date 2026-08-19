@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { parseArgs, requireInteractiveTty } from "../src/args.js";
+import {
+  parseArgs,
+  requireInteractiveTty,
+  requiresConfidentOptIn,
+} from "../src/args.js";
 
 describe("parseArgs", () => {
   it("uses production defaults and separates source from project path", () => {
@@ -13,6 +17,12 @@ describe("parseArgs", () => {
       apiUrl: "https://api.confident-ai.com",
       help: false,
     });
+  });
+
+  it("asks to use Confident AI only when launched from DeepEval", () => {
+    expect(requiresConfidentOptIn("deepeval")).toBe(true);
+    expect(requiresConfidentOptIn("direct")).toBe(false);
+    expect(requiresConfidentOptIn("in_app_setup")).toBe(false);
   });
 
   it("parses IDs and strips URL trailing slashes", () => {

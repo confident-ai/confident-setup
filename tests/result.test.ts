@@ -18,10 +18,29 @@ describe("setup result validation", () => {
     expect(parseSetupResult(validResult)).toEqual(validResult);
   });
 
-  it("requires a run ID for completed setup", () => {
+  it("requires a run ID for completed cloud setup", () => {
     expect(() =>
       parseSetupResult({ ...validResult, testRunId: undefined }),
     ).toThrow("completed setup");
+  });
+
+  it("allows a completed local setup without a run ID", () => {
+    expect(
+      parseSetupResult(
+        {
+          status: "completed",
+          changedFiles: validResult.changedFiles,
+          sdks: validResult.sdks,
+          levels: validResult.levels,
+          datasetSource: validResult.datasetSource,
+          metrics: validResult.metrics,
+          rerunCommand: validResult.rerunCommand,
+        },
+        false,
+      ),
+    ).toMatchObject({
+      status: "completed",
+    });
   });
 
   it("requires errors for failures and rejects unknown fields", () => {

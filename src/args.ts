@@ -20,6 +20,9 @@ const sourceSchema = z
   .max(64)
   .regex(/^[a-zA-Z0-9_-]+$/);
 
+export const requiresConfidentOptIn = (from: string): boolean =>
+  from === "deepeval";
+
 const requireValue = (argv: string[], index: number, flag: string): string => {
   const value = argv[index + 1];
   if (!value || value.startsWith("--")) {
@@ -90,7 +93,7 @@ export const helpText = `Confident AI Setup Wizard
 Usage: confident-setup [options]
 
 Options:
-  --from <source>        Setup entry point attribution (default: direct)
+  --from <source>        Setup entry point (deepeval asks first; default: direct)
   --project-dir <path>   Project directory (default: current directory)
   --app-url <url>        Confident app URL (default: https://app.confident-ai.com)
   --api-url <url>        Confident API URL (default: https://api.confident-ai.com)
@@ -105,7 +108,7 @@ export const requireInteractiveTty = (
 ): void => {
   if (!stdinIsTty || !stdoutIsTty) {
     throw new Error(
-      "Confident Setup Wizard requires an interactive TTY. Run it directly in a terminal.",
+      "Setup requires an interactive TTY. Run it directly in a terminal.",
     );
   }
 };

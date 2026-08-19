@@ -29,5 +29,18 @@ describe("agent prompt", () => {
     const prompt = buildAgentPrompt("/tmp/app", "/tmp/result.json", false);
     expect(prompt).toContain("Judge model: none configured");
     expect(prompt).toContain("do not add LLM-judge metrics");
+    expect(prompt).toContain("Cloud: Confident AI");
+  });
+
+  it("keeps DeepEval local when Confident AI is declined", () => {
+    const prompt = buildAgentPrompt(
+      "/tmp/app",
+      "/tmp/result.json",
+      false,
+      {},
+      false,
+    );
+    expect(prompt).toContain("Cloud: local only");
+    expect(prompt).not.toContain("A completed result requires testRunId");
   });
 });

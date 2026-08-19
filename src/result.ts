@@ -17,13 +17,6 @@ export const setupResultSchema = z
   })
   .strict()
   .superRefine((result, context) => {
-    if (result.status === "completed" && !result.testRunId) {
-      context.addIssue({
-        code: "custom",
-        path: ["testRunId"],
-        message: "A completed setup must include testRunId.",
-      });
-    }
     if (result.status === "failed" && !result.errors?.length) {
       context.addIssue({
         code: "custom",
@@ -35,10 +28,27 @@ export const setupResultSchema = z
 
 export type SetupResult = z.infer<typeof setupResultSchema>;
 
-export const parseSetupResult = (value: unknown): SetupResult =>
-  setupResultSchema.parse(value);
+export const parseSetupResult = (
+  value: unknown,
+  requireTestRun = true,
+): SetupResult => {
+  const result = setupResultSchema.parse(value);
+  if (requireTestRun && result.status === "completed" && !result.testRunId) {
+    throw new z.ZodError([
+      {
+        code: "custom",
+        path: ["testRunId"],
+        message: "A completed setup must include testRunId.",
+      },
+    ]);
+  }
+  return result;
+};
 
-export const readSetupResult = async (path: string): Promise<SetupResult> => {
+export const readSetupResult = async (
+  path: string,
+  requireTestRun = true,
+): Promise<SetupResult> => {
   const value: unknown = JSON.parse(await readFile(path, "utf8"));
-  return parseSetupResult(value);
+  return parseSetupResult(value, requireTestRun);
 };

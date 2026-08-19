@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import { helpText, parseArgs, requireInteractiveTty } from "./args.js";
-import { brand } from "./theme.js";
 import { isWizardCancellation, runWizard } from "./wizard.js";
 
 const main = async (): Promise<void> => {
@@ -20,6 +19,6 @@ main().catch((error: unknown) => {
     return;
   }
   const message = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`${brand("Confident AI")} setup failed: ${message}\n`);
+  process.stderr.write(`Setup failed: ${message}\n`);
   process.exitCode = 1;
 });

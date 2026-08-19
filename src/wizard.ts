@@ -31,7 +31,7 @@ import type {
   QuestionnaireAnswers,
 } from "./api.js";
 import { ConfidentApi } from "./api.js";
-import type { CliArgs } from "./args.js";
+import { requiresConfidentOptIn, type CliArgs } from "./args.js";
 import {
   CONFIDENT_API_KEY,
   ensureEnvLocalIgnored,
@@ -56,6 +56,7 @@ import {
 } from "./onboarding.js";
 import {
   deferredSetupMessage,
+  DEEPEVAL_DOCS_URL,
   EVALUATION_DOCS_URL,
   fullPermissionWarning,
   GITHUB_ISSUE_URL,
@@ -71,16 +72,17 @@ import {
 import { buildAgentPrompt } from "./prompt.js";
 import { readSetupResult, type SetupResult } from "./result.js";
 import { classifyErrorCode, SetupTelemetry } from "./telemetry.js";
-import { alert, banner, brand, stepHeading } from "./theme.js";
+import { alert, banner, brand, stepHeading, wizardStepsFor } from "./theme.js";
 import { log, spinner } from "./ui.js";
 import { verifyTestRun, type VerificationResult } from "./verification.js";
 
 class WizardCancelledError extends Error {}
 
-/** The judge model the evaluation may use, absent when the user skipped it. */
 export interface JudgeSelection {
   provider?: JudgeProvider;
 }
+
+let evaluationDocsUrl = EVALUATION_DOCS_URL;
 
 const showCancellation = (message = "Setup cancelled."): void => {
   cancel(
@@ -90,7 +92,7 @@ const showCancellation = (message = "Setup cancelled."): void => {
       `If you ran into an issue, please open a GitHub issue: ${GITHUB_ISSUE_URL}`,
       "",
       pc.dim(`- Contact support: ${SUPPORT_URL}`),
-      pc.dim(`- Evaluation documentation: ${EVALUATION_DOCS_URL}`),
+      pc.dim(`- Evaluation documentation: ${evaluationDocsUrl}`),
     ].join("\n"),
   );
 };
@@ -131,7 +133,7 @@ const confirmUnsafeGitState = async (
         describeGitStatus(status),
         "",
         status.isRepository
-          ? `${pc.bold("Confident AI Setup can continue, but its edits will be mixed with these changes. Continue?")}`
+          ? `${pc.bold("Setup can continue, but its edits will be mixed with these changes. Continue?")}`
           : pc.bold("Continue without Git safety checks?"),
       ].join("\n"),
       options: [
@@ -158,6 +160,28 @@ const confirmUnsafeGitState = async (
     showCancellation("Setup cancelled. No changes were made by the wizard.");
     throw new WizardCancelledError("Git preflight declined.");
   }
+};
+
+const confirmConfidentAi = async (): Promise<boolean> => {
+  const proceed = requiredPrompt<"yes" | "no">(
+    await select({
+      message:
+        "DeepEval can run evals locally without the platform. Use Confident AI to save results in the cloud?",
+      options: [
+        {
+          label: "Yes, set up Confident AI",
+          value: "yes",
+          hint: "Sign in, save an API key, then add and verify the evaluation",
+        },
+        {
+          label: "No, keep DeepEval local",
+          value: "no",
+          hint: "Skip sign-in; still add a local evaluation",
+        },
+      ],
+    }),
+  );
+  return proceed === "yes";
 };
 
 const promptQuestionnaire = async (
@@ -298,6 +322,7 @@ const showOwnAgentPrompt = async (
   delivery: PromptDelivery,
   prompt: string,
   resultFile: string,
+  useConfidentAi: boolean,
 ): Promise<void> => {
   if (delivery === "clipboard") {
     try {
@@ -318,7 +343,11 @@ const showOwnAgentPrompt = async (
       "Let it finish building and running the evaluation in this project.",
       "Come back here and confirm when it is done.",
       "",
-      "DeepEval loads CONFIDENT_API_KEY from .env.local. Do not ask the agent to read that file.",
+      ...(useConfidentAi
+        ? [
+            "DeepEval loads CONFIDENT_API_KEY from .env.local. Do not ask the agent to read that file.",
+          ]
+        : ["Do not ask the agent to read .env.local."]),
       `The prompt already includes the result path: ${resultFile}`,
     ].join("\n"),
     "What to do next",
@@ -343,18 +372,22 @@ const summarizeResult = (result: SetupResult, testRunUrl?: string): string => {
   return lines.join("\n");
 };
 
-const completionOutro = (verified: boolean): string =>
+const completionOutro = (verified: boolean, useConfidentAi: boolean): string =>
   [
-    `${brand("Confident AI")} ${pc.dim("local evaluation setup complete.")}`,
+    `${brand(useConfidentAi ? "Confident AI" : "DeepEval")} ${pc.dim("evaluation setup complete.")}`,
     "",
     verified
-      ? `${brand("✔")} Your evaluation is ready to rerun and review in Confident AI.`
-      : "Next: finish the evaluation and verify its Confident AI test run.",
+      ? `${brand("✔")} Your evaluation is ready to rerun.${
+          useConfidentAi ? " Review it in Confident AI." : ""
+        }`
+      : `Next: finish the evaluation.${
+          useConfidentAi ? " Then verify its Confident AI test run." : ""
+        }`,
     "",
     `If you encountered an issue, please open a GitHub issue: ${GITHUB_ISSUE_URL}`,
     "",
     pc.dim(`- Contact support: ${SUPPORT_URL}`),
-    pc.dim(`- Evaluation documentation: ${EVALUATION_DOCS_URL}`),
+    pc.dim(`- Evaluation documentation: ${evaluationDocsUrl}`),
   ].join("\n");
 
 const verifyTestRunWithProgress = async (
@@ -395,7 +428,7 @@ const executeAgentWithProgress = async (
   agent: AgentDefinition,
   projectDirectory: string,
   prompt: string,
-  apiKey: string,
+  apiKey: string | undefined,
   resultFile: string,
 ): Promise<void> => {
   const output = taskLog({
@@ -600,10 +633,9 @@ const configureJudgeModel = async (
 
 const runBuiltInMode = async (
   args: CliArgs,
-  apiKey: string,
-  projectId: string,
   readyAgents: AgentDefinition[],
   judge: JudgeSelection,
+  cloud?: { apiKey: string; projectId: string },
 ): Promise<{ result: SetupResult; verified: boolean }> => {
   if (!readyAgents.length) {
     throw new Error("No built-in coding agent is available.");
@@ -670,28 +702,32 @@ const runBuiltInMode = async (
     resultFile.path,
     paidModelRunConsent,
     judge,
+    Boolean(cloud),
   );
   try {
     await executeAgentWithProgress(
       agent,
       args.projectDir,
       prompt,
-      apiKey,
+      cloud?.apiKey,
       resultFile.path,
     );
-    const result = await readSetupResult(resultFile.path);
+    const result = await readSetupResult(resultFile.path, Boolean(cloud));
     const verification =
-      result.status === "completed"
+      cloud && result.status === "completed" && result.testRunId
         ? await verifyTestRunWithProgress(
             args,
-            apiKey,
-            projectId,
-            result.testRunId!,
+            cloud.apiKey,
+            cloud.projectId,
+            result.testRunId,
           )
         : undefined;
     if (verification) result.testRunUrl = verification.testRunUrl;
     note(summarizeResult(result, result.testRunUrl), "Evaluation setup result");
-    return { result, verified: Boolean(verification) };
+    return {
+      result,
+      verified: cloud ? Boolean(verification) : result.status === "completed",
+    };
   } finally {
     await rm(resultFile.directory, { recursive: true, force: true });
   }
@@ -699,9 +735,8 @@ const runBuiltInMode = async (
 
 const finishOwnAgentMode = async (
   args: CliArgs,
-  apiKey: string,
-  projectId: string,
   resultFile: { directory: string; path: string },
+  cloud?: { apiKey: string; projectId: string },
 ): Promise<boolean> => {
   const decision = requiredPrompt<"finished" | "later">(
     await select({
@@ -709,14 +744,14 @@ const finishOwnAgentMode = async (
         "After you paste the prompt into your coding agent and it finishes, continue here.",
       options: [
         {
-          label: "The agent finished — verify the test run",
+          label: "The agent finished",
           value: "finished",
           hint: "Read the structured result file",
         },
         {
           label: "I'll finish later",
           value: "later",
-          hint: "Keep the prompt and credentials",
+          hint: "Keep the prompt and continue later",
         },
       ],
     }),
@@ -727,18 +762,21 @@ const finishOwnAgentMode = async (
   }
 
   try {
-    const result = await readSetupResult(resultFile.path);
-    const verification = result.testRunId
-      ? await verifyTestRunWithProgress(
-          args,
-          apiKey,
-          projectId,
-          result.testRunId,
-        )
-      : undefined;
+    const result = await readSetupResult(resultFile.path, Boolean(cloud));
+    const verification =
+      cloud && result.testRunId
+        ? await verifyTestRunWithProgress(
+            args,
+            cloud.apiKey,
+            cloud.projectId,
+            result.testRunId,
+          )
+        : undefined;
     if (verification) result.testRunUrl = verification.testRunUrl;
     note(summarizeResult(result, result.testRunUrl), "Evaluation setup result");
-    return result.status === "completed" && Boolean(verification);
+    return cloud
+      ? result.status === "completed" && Boolean(verification)
+      : result.status === "completed";
   } finally {
     await rm(resultFile.directory, { recursive: true, force: true });
   }
@@ -746,32 +784,33 @@ const finishOwnAgentMode = async (
 
 const finishManualMode = async (
   args: CliArgs,
-  apiKey: string,
-  projectId: string,
+  cloud?: { apiKey: string; projectId: string },
 ): Promise<boolean> => {
+  const docsUrl = cloud ? MANUAL_QUICKSTART_URL : DEEPEVAL_DOCS_URL;
   const decision = requiredPrompt<"verify" | "later">(
     await select({
       message: [
         "Follow the DeepEval evaluation quickstart for your project:",
-        brand(MANUAL_QUICKSTART_URL),
+        brand(docsUrl),
         "",
         pc.bold("Did you complete and run the evaluation?"),
       ].join("\n"),
       options: [
         {
-          label: "Enter the completed test-run ID",
+          label: "Yes, the evaluation ran",
           value: "verify",
-          hint: "Verify the evaluation now",
+          hint: "Continue",
         },
         {
           label: "Finish evaluation later",
           value: "later",
-          hint: "Keep the local credentials and exit",
+          hint: "Exit and continue later",
         },
       ],
     }),
   );
   if (decision === "later") return false;
+  if (!cloud) return true;
 
   const testRunId = requiredPrompt(
     await text({
@@ -781,8 +820,8 @@ const finishManualMode = async (
   ).trim();
   const verification = await verifyTestRunWithProgress(
     args,
-    apiKey,
-    projectId,
+    cloud.apiKey,
+    cloud.projectId,
     testRunId,
   );
   if (!verification) return false;
@@ -796,9 +835,20 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
     throw new Error(`Project directory does not exist: ${args.projectDir}`);
   }
 
+  const fromDeepEval = requiresConfidentOptIn(args.from);
+  if (fromDeepEval) evaluationDocsUrl = DEEPEVAL_DOCS_URL;
+
+  intro(pc.bold("Evaluation setup"));
+  const useConfidentAi = fromDeepEval ? await confirmConfidentAi() : true;
+  evaluationDocsUrl = useConfidentAi ? EVALUATION_DOCS_URL : DEEPEVAL_DOCS_URL;
+
   const telemetry = new SetupTelemetry(args.apiUrl);
-  process.stdout.write(`\n${banner()}\n\n`);
-  intro(pc.bold("Local evaluation setup"));
+  process.stdout.write(
+    `\n${banner(process.stdout.columns ?? 80, useConfidentAi)}\n\n`,
+  );
+  const steps = wizardStepsFor(useConfidentAi);
+  const heading = (step: number, detail?: string): string =>
+    stepHeading(step, detail, steps);
 
   try {
     const gitStatus = await inspectGit(args.projectDir);
@@ -806,120 +856,133 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
       await confirmUnsafeGitState(gitStatus);
     }
 
-    log.message(stepHeading(1));
-    const api = new ConfidentApi(args.apiUrl);
-    const session = await api.createAuthSession({
-      purpose: "evaluation_setup",
-      source: args.from,
-      ...(args.orgId ? { organizationId: args.orgId } : {}),
-      ...(args.projId ? { projectId: args.projId } : {}),
-    });
-    telemetry.setEventToken(session.eventToken);
-    await telemetry.send({
-      event: "wizard_started",
-      step: "bootstrap",
-      result: "succeeded",
-    });
-    await telemetry.send({
-      event: "authentication_started",
-      step: "authentication",
-      result: "started",
-    });
-    const pairingUrl = pairingUrlForApp(
-      args.appUrl,
-      session.verificationUriComplete,
-    );
-    log.info(
-      [
-        pc.bold(
-          "Sign in to continue setup. Your browser should have opened automatically.",
-        ),
-        "",
-        `Verification code: ${pc.bold(session.userCode)}`,
-        "",
-        pc.dim(
-          "If your browser did not open automatically, open the link below:",
-        ),
-        brand(pairingUrl),
-      ].join("\n"),
-    );
-    await open(pairingUrl).catch(() => {
-      log.warn("Could not open the browser automatically. Use the URL above.");
-    });
-
-    const waiting = spinner();
-    waiting.start(
-      "Waiting for browser setup (the link remains valid briefly)…",
-    );
-    const { authorization, onboarding } = await (async () => {
-      try {
-        const authorized = await api.pollAuthSession(session);
-        const state = await api.getOnboarding(authorized.setupToken);
-        return { authorization: authorized, onboarding: state };
-      } catch (error) {
-        waiting.error("Browser setup stopped.");
-        throw error;
-      }
-    })();
-    const browserProject =
-      onboarding.state === "existing_user"
-        ? onboarding.projects.find(
-            (candidate) =>
-              candidate.id === args.projId ||
-              (onboarding.projects.length === 1 && candidate.canCreateApiKey),
-          )
-        : undefined;
-    waiting.stop(
-      onboarding.state === "existing_user" &&
-        onboarding.organization &&
-        browserProject
-        ? `Browser setup complete. (org: ${brand(onboarding.organization.name)}, project: ${brand(browserProject.name)})`
-        : authorization.email
-          ? `Browser sign-in complete (${authorization.email}).`
-          : "Browser sign-in complete.",
-    );
-    await telemetry.send({
-      event: "authentication_completed",
-      step: "authentication",
-      result: "succeeded",
-    });
-
-    log.message(stepHeading(2));
-    const completion = await chooseAndCompleteProject(
-      api,
-      authorization.setupToken,
-      onboarding,
-      args,
-    );
-    if (onboarding.state === "existing_user") {
-      const project = onboarding.projects.find(
-        (candidate) => candidate.id === completion.projectId,
+    let cloud: { apiKey: string; projectId: string } | undefined;
+    if (useConfidentAi) {
+      log.message(heading(1));
+      const api = new ConfidentApi(args.apiUrl);
+      const session = await api.createAuthSession({
+        purpose: "evaluation_setup",
+        source: args.from,
+        ...(args.orgId ? { organizationId: args.orgId } : {}),
+        ...(args.projId ? { projectId: args.projId } : {}),
+      });
+      telemetry.setEventToken(session.eventToken);
+      await telemetry.send({
+        event: "wizard_started",
+        step: "bootstrap",
+        result: "succeeded",
+      });
+      await telemetry.send({
+        event: "authentication_started",
+        step: "authentication",
+        result: "started",
+      });
+      const pairingUrl = pairingUrlForApp(
+        args.appUrl,
+        session.verificationUriComplete,
       );
-      const target = [onboarding.organization?.name, project?.name].filter(
-        Boolean,
+      log.info(
+        [
+          pc.bold(
+            "Sign in to continue setup. Your browser should have opened automatically.",
+          ),
+          "",
+          `Verification code: ${pc.bold(session.userCode)}`,
+          "",
+          pc.dim(
+            "If your browser did not open automatically, open the link below:",
+          ),
+          brand(pairingUrl),
+        ].join("\n"),
       );
-      if (target.length && project?.id !== browserProject?.id) {
-        log.success(`Project setup complete (${target.join(" / ")}).`);
+      await open(pairingUrl).catch(() => {
+        log.warn(
+          "Could not open the browser automatically. Use the URL above.",
+        );
+      });
+
+      const waiting = spinner();
+      waiting.start(
+        "Waiting for browser setup (the link remains valid briefly)…",
+      );
+      const { authorization, onboarding } = await (async () => {
+        try {
+          const authorized = await api.pollAuthSession(session);
+          const state = await api.getOnboarding(authorized.setupToken);
+          return { authorization: authorized, onboarding: state };
+        } catch (error) {
+          waiting.error("Browser setup stopped.");
+          throw error;
+        }
+      })();
+      const browserProject =
+        onboarding.state === "existing_user"
+          ? onboarding.projects.find(
+              (candidate) =>
+                candidate.id === args.projId ||
+                (onboarding.projects.length === 1 && candidate.canCreateApiKey),
+            )
+          : undefined;
+      waiting.stop(
+        onboarding.state === "existing_user" &&
+          onboarding.organization &&
+          browserProject
+          ? `Browser setup complete. (org: ${brand(onboarding.organization.name)}, project: ${brand(browserProject.name)})`
+          : authorization.email
+            ? `Browser sign-in complete (${authorization.email}).`
+            : "Browser sign-in complete.",
+      );
+      await telemetry.send({
+        event: "authentication_completed",
+        step: "authentication",
+        result: "succeeded",
+      });
+
+      log.message(heading(2));
+      const completion = await chooseAndCompleteProject(
+        api,
+        authorization.setupToken,
+        onboarding,
+        args,
+      );
+      if (onboarding.state === "existing_user") {
+        const project = onboarding.projects.find(
+          (candidate) => candidate.id === completion.projectId,
+        );
+        const target = [onboarding.organization?.name, project?.name].filter(
+          Boolean,
+        );
+        if (target.length && project?.id !== browserProject?.id) {
+          log.success(`Project setup complete (${target.join(" / ")}).`);
+        }
       }
+
+      log.message(heading(3));
+      await writeEnvValues(args.projectDir, {
+        [CONFIDENT_API_KEY]: completion.apiKey,
+      });
+      const gitignoreChanged = await ensureEnvLocalIgnored(
+        args.projectDir,
+        runCommand,
+      );
+      log.success("Saved project credentials securely to .env.local.");
+      if (gitignoreChanged) {
+        log.info("Added .env.local to .gitignore.");
+      }
+      cloud = { apiKey: completion.apiKey, projectId: completion.projectId };
     }
 
-    log.message(stepHeading(3));
-    await writeEnvValues(args.projectDir, {
-      [CONFIDENT_API_KEY]: completion.apiKey,
-    });
-    const gitignoreChanged = await ensureEnvLocalIgnored(
-      args.projectDir,
-      runCommand,
-    );
-    log.success("Saved project credentials securely to .env.local.");
-    if (gitignoreChanged) {
-      log.info("Added .env.local to .gitignore.");
-    }
-
-    log.message(stepHeading(4));
+    log.message(heading(useConfidentAi ? 4 : 1));
     const judge = await configureJudgeModel(args.projectDir);
+    if (!useConfidentAi) {
+      const gitignoreChanged = await ensureEnvLocalIgnored(
+        args.projectDir,
+        runCommand,
+      );
+      if (gitignoreChanged) log.info("Added .env.local to .gitignore.");
+    }
 
-    log.message(stepHeading(5));
+    log.message(heading(useConfidentAi ? 5 : 2));
     const readyAgents = await discoverReadyAgents(args.projectDir);
     const mode = requiredPrompt<SetupMode>(
       await select({
@@ -936,8 +999,8 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
     });
 
     log.message(
-      stepHeading(
-        6,
+      heading(
+        useConfidentAi ? 6 : 3,
         mode === "built-in"
           ? "Launch the detected agent"
           : mode === "own-agent"
@@ -948,17 +1011,16 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
     if (mode === "built-in") {
       const { verified } = await runBuiltInMode(
         args,
-        completion.apiKey,
-        completion.projectId,
         readyAgents,
         judge,
+        cloud,
       );
       await telemetry.send({
         event: "setup_completed",
         step: "evaluation",
         result: verified ? "succeeded" : "failed",
       });
-      outro(completionOutro(verified));
+      outro(completionOutro(verified, useConfidentAi));
       return;
     }
 
@@ -973,31 +1035,31 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
       );
       await showOwnAgentPrompt(
         delivery,
-        buildAgentPrompt(args.projectDir, resultFile.path, undefined, judge),
+        buildAgentPrompt(
+          args.projectDir,
+          resultFile.path,
+          undefined,
+          judge,
+          useConfidentAi,
+        ),
         resultFile.path,
+        useConfidentAi,
       );
-      setupVerified = await finishOwnAgentMode(
-        args,
-        completion.apiKey,
-        completion.projectId,
-        resultFile,
-      );
-      if (!setupVerified) log.info(deferredSetupMessage(mode));
+      setupVerified = await finishOwnAgentMode(args, resultFile, cloud);
+      if (!setupVerified) log.info(deferredSetupMessage(mode, useConfidentAi));
     } else {
-      await open(MANUAL_QUICKSTART_URL).catch(() => undefined);
-      setupVerified = await finishManualMode(
-        args,
-        completion.apiKey,
-        completion.projectId,
+      await open(cloud ? MANUAL_QUICKSTART_URL : DEEPEVAL_DOCS_URL).catch(
+        () => undefined,
       );
-      if (!setupVerified) log.info(deferredSetupMessage(mode));
+      setupVerified = await finishManualMode(args, cloud);
+      if (!setupVerified) log.info(deferredSetupMessage(mode, useConfidentAi));
     }
     await telemetry.send({
       event: "setup_completed",
       step: setupVerified ? "evaluation" : "configuration",
       result: setupVerified ? "succeeded" : "cancelled",
     });
-    outro(completionOutro(setupVerified));
+    outro(completionOutro(setupVerified, useConfidentAi));
   } catch (error) {
     if (error instanceof WizardCancelledError) throw error;
     await telemetry.send({

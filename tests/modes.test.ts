@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   deferredSetupMessage,
+  DEEPEVAL_DOCS_URL,
   fullPermissionWarning,
   listLabels,
   MANUAL_QUICKSTART_URL,
@@ -34,6 +35,10 @@ describe("mode helpers", () => {
     ]);
     expect(fullPermissionWarning("Codex")).toContain("full permission");
     expect(deferredSetupMessage("manual")).toContain(MANUAL_QUICKSTART_URL);
+    expect(deferredSetupMessage("manual", false)).toContain(DEEPEVAL_DOCS_URL);
+    expect(deferredSetupMessage("own-agent")).toBe(
+      deferredSetupMessage("own-agent", false),
+    );
   });
 
   it("names detected agents and explains paste-your-own-prompt", () => {
