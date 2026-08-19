@@ -29,8 +29,8 @@ export const setupModeOptions = (
         : "Use a detected coding agent";
   const detectedHint =
     names.length === 1
-      ? `Launch ${names[0]} in this folder with a prepared evaluation prompt`
-      : "Launch Claude Code or Codex in this folder with a prepared evaluation prompt";
+      ? `We run ${names[0]} for you here and stream its progress`
+      : "We run the agent for you here and stream its progress";
 
   return [
     {

@@ -57,7 +57,7 @@ import {
 import { buildAgentPrompt } from "./prompt.js";
 import { readSetupResult, type SetupResult } from "./result.js";
 import { classifyErrorCode, SetupTelemetry } from "./telemetry.js";
-import { brand, link, ok, stepHeading } from "./theme.js";
+import { banner, brand, link, ok, stepHeading } from "./theme.js";
 import { verifyTestRun, type VerificationResult } from "./verification.js";
 
 class WizardCancelledError extends Error {}
@@ -330,7 +330,7 @@ const completionOutro = (verified: boolean): string =>
     `${brand("Confident AI")} ${pc.dim("local evaluation setup complete.")}`,
     "",
     verified
-      ? "Your evaluation is ready to rerun and review in Confident AI."
+      ? `${ok("✔")} Your evaluation is ready to rerun and review in Confident AI.`
       : "Next: finish the evaluation and verify its Confident AI test run.",
     "",
     `If you encountered an issue, please open a GitHub issue: ${GITHUB_ISSUE_URL}`,
@@ -467,7 +467,7 @@ const runBuiltInMode = async (
             options: readyAgents.map((candidate) => ({
               label: candidate.label,
               value: candidate,
-              hint: `Run ${candidate.label} in this project`,
+              hint: `We run ${candidate.label} for you here`,
             })),
           }),
         );
@@ -646,8 +646,8 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
   }
 
   const telemetry = new SetupTelemetry(args.apiUrl);
-  process.stdout.write("\n");
-  intro(`${brand("Confident AI")}  ${pc.dim("evaluation setup")}`);
+  process.stdout.write(`\n${banner()}\n\n`);
+  intro(pc.bold("Local evaluation setup"));
 
   try {
     const gitStatus = await inspectGit(args.projectDir);

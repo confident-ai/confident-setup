@@ -38,7 +38,9 @@ describe("mode helpers", () => {
   it("names detected agents and explains paste-your-own-prompt", () => {
     const [detected, own] = setupModeOptions([{ label: "Claude Code" }]);
     expect(detected?.label).toBe("Use detected agent (Claude Code)");
-    expect(detected?.hint).toContain("Launch Claude Code");
+    expect(detected?.hint).toBe(
+      "We run Claude Code for you here and stream its progress",
+    );
     expect(own?.label).toBe("Paste a setup prompt into your coding agent");
     expect(
       setupModeOptions([{ label: "Claude Code" }, { label: "Codex" }])[0]
