@@ -30,10 +30,10 @@ npm run build
   confirmation.
 - `prompts/evaluation.md` is the canonical agent prompt. Avoid duplicate prompt
   copies.
-- `examples/agent-sandbox` is a disposable target app for manual end-to-end
-  runs. It ships unlabeled support history on purpose: curating evaluation
-  datasets is the work being tested, so do not add expected outputs or relevance
-  labels to `examples/agent-sandbox/data`.
+- `examples/` is git-ignored scratch space for manual end-to-end runs, never
+  part of the published package. A sandbox target app there keeps its support
+  history unlabeled on purpose: curating evaluation datasets is the work being
+  tested, so do not add expected outputs or relevance labels to its data.
 - Terminal color must go through `src/theme.ts`, which honors `NO_COLOR` and
   non-TTY output.
 - Do not commit or push unless the user explicitly asks.

@@ -80,8 +80,9 @@ resolves, so run the built CLI rather than the TypeScript entry point:
 node dist/cli.js --help
 ```
 
-`examples/agent-sandbox` is a disposable retrieval augmented chatbot to try the
-whole flow against. `npm run wizard:sandbox` points the built CLI at it.
+`examples/` is git-ignored scratch space for end-to-end runs. When a sandbox
+project exists at `examples/agent-sandbox`, `npm run wizard:sandbox` points the
+built CLI at it; otherwise pass `--project-dir` to any throwaway folder.
 
 `npm run build:sea` creates a Node Single Executable Application in `release/`.
 Tagged releases build darwin/linux x64/arm64 archives and `SHA256SUMS`.
