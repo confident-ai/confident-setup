@@ -8,7 +8,7 @@ import pc from "picocolors";
 /** Landing `--brand-violet: #760eff`. */
 const BRAND_RGB = [118, 14, 255] as const;
 
-/** Landing `--accent-label-pink: rgb(231, 0, 116)`. */
+/** Landing `--accent-label-pink: rgb(231, 0, 116)`, the banner's fade target. */
 const PINK_RGB = [231, 0, 116] as const;
 
 const rgb =
@@ -18,18 +18,16 @@ const rgb =
       ? `\x1b[38;2;${red};${green};${blue}m${text}\x1b[39m`
       : text;
 
+/**
+ * The wizard's single accent. Steps, links, spinners, project names, and
+ * success marks all use it, so nothing competes for attention except `alert`.
+ */
 export const brand = rgb(...BRAND_RGB);
 
-/** Landing `--brand-violet-rgb: 110, 0, 255`, the deeper grid violet. */
-export const accent = rgb(110, 0, 255);
+/** Landing `--accent-label-ember: rgba(255, 65, 1, 1)`, for warnings and errors. */
+export const alert = rgb(255, 65, 1);
 
-/** Landing `--accent-label-blue: rgb(0, 157, 255)`. */
-export const link = rgb(0, 157, 255);
-
-/** Landing `--accent-label-teal: rgb(0, 255, 200)`. */
-export const ok = rgb(0, 255, 200);
-
-/** Landing dark-theme `--text-secondary: #a9afba`. */
+/** Landing dark-theme `--text-secondary: #a9afba`, for supporting detail. */
 export const muted = rgb(169, 175, 186);
 
 /**
@@ -54,7 +52,7 @@ const gradient = (text: string, span: number): string => {
 };
 
 /** pyfiglet `big_money-ne` "Confident AI", the DeepEval `deepeval login` banner. */
-const WORDMARK_BIG = [
+const WORDMARK_FULL = [
   "  /$$$$$$                       /$$$$$$  /$$       /$$                       /$$            /$$$$$$  /$$$$$$",
   " /$$__  $$                     /$$__  $$|__/      | $$                      | $$           /$$__  $$|_  $$_/",
   "| $$  \\__/  /$$$$$$  /$$$$$$$ | $$  \\__/ /$$  /$$$$$$$  /$$$$$$  /$$$$$$$  /$$$$$$        | $$  \\ $$  | $$",
@@ -65,16 +63,36 @@ const WORDMARK_BIG = [
   " \\______/  \\______/ |__/  |__/|__/      |__/ \\_______/ \\_______/|__/  |__/   \\___/        |__/  |__/|______/",
 ] as const;
 
-/** pyfiglet `small` "Confident AI", for terminals too narrow for the big art. */
-const WORDMARK_SMALL = [
-  "  ___           __ _    _         _       _   ___",
-  " / __|___ _ _  / _(_)__| |___ _ _| |_    /_\\ |_ _|",
-  "| (__/ _ \\ ' \\|  _| / _` / -_) ' \\  _|  / _ \\ | |",
-  " \\___\\___/_||_|_| |_\\__,_\\___|_||_\\__| /_/ \\_\\___|",
+/** Same font, "Confident", for terminals too narrow for the full lockup. */
+const WORDMARK_NAME = [
+  "  /$$$$$$                       /$$$$$$  /$$       /$$                       /$$",
+  " /$$__  $$                     /$$__  $$|__/      | $$                      | $$",
+  "| $$  \\__/  /$$$$$$  /$$$$$$$ | $$  \\__/ /$$  /$$$$$$$  /$$$$$$  /$$$$$$$  /$$$$$$",
+  "| $$       /$$__  $$| $$__  $$| $$$$    | $$ /$$__  $$ /$$__  $$| $$__  $$|_  $$_/",
+  "| $$      | $$  \\ $$| $$  \\ $$| $$_/    | $$| $$  | $$| $$$$$$$$| $$  \\ $$  | $$",
+  "| $$    $$| $$  | $$| $$  | $$| $$      | $$| $$  | $$| $$_____/| $$  | $$  | $$ /$$",
+  "|  $$$$$$/|  $$$$$$/| $$  | $$| $$      | $$|  $$$$$$$|  $$$$$$$| $$  | $$  |  $$$$/",
+  " \\______/  \\______/ |__/  |__/|__/      |__/ \\_______/ \\_______/|__/  |__/   \\___/",
 ] as const;
 
-const BIG_WIDTH = 108;
-const SMALL_WIDTH = 50;
+/** Same font, "AI", the narrowest mark that still reads as the money type. */
+const WORDMARK_MARK = [
+  "  /$$$$$$  /$$$$$$",
+  " /$$__  $$|_  $$_/",
+  "| $$  \\ $$  | $$",
+  "| $$$$$$$$  | $$",
+  "| $$__  $$  | $$",
+  "| $$  | $$  | $$",
+  "| $$  | $$ /$$$$$$",
+  "|__/  |__/|______/",
+] as const;
+
+/** Widest art first; the banner picks the first tier the terminal can hold. */
+const WORDMARK_TIERS = [
+  { columns: 108, rows: WORDMARK_FULL },
+  { columns: 84, rows: WORDMARK_NAME },
+  { columns: 18, rows: WORDMARK_MARK },
+] as const;
 
 export const wizardSteps = {
   1: { title: "Sign in", short: "sign in" },
@@ -95,7 +113,7 @@ export const stepRoadmap = (): string =>
 
 export const stepHeading = (current: WizardStep, detail?: string): string => {
   const title = detail ?? wizardSteps[current].title;
-  return `${brand("●")} ${accent(`Step ${current} of ${WIZARD_STEP_COUNT}`)}  ${title}`;
+  return `${brand(`Step ${current} of ${WIZARD_STEP_COUNT}`)}  ${title}`;
 };
 
 /** DeepEval `render_login_message`, minus its login-specific wording. */
@@ -106,12 +124,10 @@ export const welcomeMessage = (): string =>
 export const banner = (
   columns: number = process.stdout.columns ?? 80,
 ): string => {
-  const wordmark =
-    columns >= BIG_WIDTH
-      ? WORDMARK_BIG.map((row) => gradient(row, BIG_WIDTH))
-      : columns >= SMALL_WIDTH
-        ? WORDMARK_SMALL.map((row) => gradient(row, SMALL_WIDTH))
-        : [brand(pc.bold("CONFIDENT AI"))];
+  const tier = WORDMARK_TIERS.find((candidate) => columns >= candidate.columns);
+  const wordmark = tier
+    ? tier.rows.map((row) => gradient(row, tier.columns))
+    : [brand(pc.bold("CONFIDENT AI"))];
   return [welcomeMessage(), "", ...wordmark, "", muted(stepRoadmap())].join(
     "\n",
   );

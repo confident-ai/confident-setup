@@ -7,6 +7,9 @@ import {
   WIZARD_STEP_COUNT,
 } from "../src/theme.js";
 
+/** Built at runtime because a literal escape trips `no-control-regex`. */
+const ansiPattern = new RegExp(`${String.fromCharCode(27)}\\[[\\d;]*m`, "g");
+
 describe("welcome banner", () => {
   it("draws DeepEval's big_money-ne wordmark when it fits", () => {
     const rows = banner(120).split("\n");
@@ -17,13 +20,16 @@ describe("welcome banner", () => {
     expect(banner(120)).toContain("sign in → project");
   });
 
-  it("steps down to smaller art rather than wrapping mid-word", () => {
-    const medium = banner(80);
-    expect(medium).not.toContain("/$$$$$$");
-    expect(medium).toContain(
-      "  ___           __ _    _         _       _   ___",
-    );
-    expect(banner(30)).toContain("CONFIDENT AI");
+  it("keeps the money type at narrower widths instead of another font", () => {
+    for (const columns of [108, 84, 60, 18]) {
+      const art = banner(columns)
+        .split("\n")
+        .map((row) => row.replaceAll(ansiPattern, ""))
+        .filter((row) => row.includes("$"));
+      expect(art.length).toBeGreaterThan(0);
+      expect(art.every((row) => row.length <= columns)).toBe(true);
+    }
+    expect(banner(17)).toContain("CONFIDENT AI");
   });
 
   it("names every step in the roadmap", () => {

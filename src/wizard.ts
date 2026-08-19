@@ -6,12 +6,10 @@ import {
   cancel,
   intro,
   isCancel,
-  log,
   multiselect,
   note,
   outro,
   select,
-  spinner,
   taskLog,
   text,
 } from "@clack/prompts";
@@ -57,7 +55,8 @@ import {
 import { buildAgentPrompt } from "./prompt.js";
 import { readSetupResult, type SetupResult } from "./result.js";
 import { classifyErrorCode, SetupTelemetry } from "./telemetry.js";
-import { banner, brand, link, ok, stepHeading } from "./theme.js";
+import { alert, banner, brand, stepHeading } from "./theme.js";
+import { log, spinner } from "./ui.js";
 import { verifyTestRun, type VerificationResult } from "./verification.js";
 
 class WizardCancelledError extends Error {}
@@ -105,8 +104,8 @@ const confirmUnsafeGitState = async (
     await select({
       message: [
         status.isRepository
-          ? `${pc.yellow(pc.bold("Git changes detected."))} This repository already has local changes:`
-          : `${pc.yellow(pc.bold("Warning:"))} This folder is not a Git repository.`,
+          ? `${alert(pc.bold("Git changes detected."))} This repository already has local changes:`
+          : `${alert(pc.bold("Warning:"))} This folder is not a Git repository.`,
         "",
         describeGitStatus(status),
         "",
@@ -309,10 +308,8 @@ const summarizeResult = (result: SetupResult, testRunUrl?: string): string => {
   const lines = [
     `Status: ${
       result.status === "completed"
-        ? ok(result.status)
-        : result.status === "partial"
-          ? pc.yellow(result.status)
-          : pc.red(result.status)
+        ? brand(result.status)
+        : alert(result.status)
     }`,
     `SDKs: ${result.sdks.join(", ")}`,
     `Levels: ${result.levels.join(", ")}`,
@@ -320,7 +317,7 @@ const summarizeResult = (result: SetupResult, testRunUrl?: string): string => {
     `Metrics: ${result.metrics.join(", ") || "none"}`,
     `Rerun: ${pc.bold(result.rerunCommand)}`,
   ];
-  if (testRunUrl) lines.push(`Test run: ${link(testRunUrl)}`);
+  if (testRunUrl) lines.push(`Test run: ${brand(testRunUrl)}`);
   if (result.errors?.length) lines.push(`Issues: ${result.errors.join("; ")}`);
   return lines.join("\n");
 };
@@ -330,7 +327,7 @@ const completionOutro = (verified: boolean): string =>
     `${brand("Confident AI")} ${pc.dim("local evaluation setup complete.")}`,
     "",
     verified
-      ? `${ok("✔")} Your evaluation is ready to rerun and review in Confident AI.`
+      ? `${brand("✔")} Your evaluation is ready to rerun and review in Confident AI.`
       : "Next: finish the evaluation and verify its Confident AI test run.",
     "",
     `If you encountered an issue, please open a GitHub issue: ${GITHUB_ISSUE_URL}`,
@@ -362,7 +359,7 @@ const verifyTestRunWithProgress = async (
     );
     return result;
   } catch (error) {
-    verifying.stop("Test-run verification failed.");
+    verifying.error("Test-run verification failed.");
     log.warn(
       [
         error instanceof Error ? error.message : String(error),
@@ -602,7 +599,7 @@ const finishManualMode = async (
     await select({
       message: [
         "Follow the DeepEval evaluation quickstart for your project:",
-        link(MANUAL_QUICKSTART_URL),
+        brand(MANUAL_QUICKSTART_URL),
         "",
         pc.bold("Did you complete and run the evaluation?"),
       ].join("\n"),
@@ -635,7 +632,7 @@ const finishManualMode = async (
     testRunId,
   );
   if (!verification) return false;
-  note(link(verification.testRunUrl), "Verified Confident AI test run");
+  note(brand(verification.testRunUrl), "Verified Confident AI test run");
   return true;
 };
 
@@ -684,12 +681,12 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
           "Sign in to continue setup. Your browser should have opened automatically.",
         ),
         "",
-        `Verification code: ${pc.bold(pc.white(session.userCode))}`,
+        `Verification code: ${pc.bold(session.userCode)}`,
         "",
         pc.dim(
           "If your browser did not open automatically, open the link below:",
         ),
-        link(pairingUrl),
+        brand(pairingUrl),
       ].join("\n"),
     );
     await open(pairingUrl).catch(() => {
@@ -706,7 +703,7 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
         const state = await api.getOnboarding(authorized.setupToken);
         return { authorization: authorized, onboarding: state };
       } catch (error) {
-        waiting.stop("Browser setup stopped.");
+        waiting.error("Browser setup stopped.");
         throw error;
       }
     })();
@@ -722,7 +719,7 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
       onboarding.state === "existing_user" &&
         onboarding.organization &&
         browserProject
-        ? `Browser setup complete. (org: ${ok(onboarding.organization.name)}, project: ${ok(browserProject.name)})`
+        ? `Browser setup complete. (org: ${brand(onboarding.organization.name)}, project: ${brand(browserProject.name)})`
         : authorization.email
           ? `Browser sign-in complete (${authorization.email}).`
           : "Browser sign-in complete.",
