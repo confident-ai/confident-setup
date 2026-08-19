@@ -4,6 +4,7 @@ import {
   buildAgentInvocation,
   checkAgent,
   executeAgent,
+  getAuthInvocation,
   supportedAgents,
   type AgentRunner,
 } from "../src/agents.js";
@@ -17,6 +18,30 @@ describe("agent arguments", () => {
     expect(buildAgentInvocation(claude, "full", "prompt").args).toContain(
       "--dangerously-skip-permissions",
     );
+  });
+
+  it("uses Cursor's ask mode before its unsandboxed run", () => {
+    const cursor = supportedAgents[2]!;
+    const readOnly = buildAgentInvocation(cursor, "read-only", "prompt");
+    expect(readOnly.command).toBe("cursor-agent");
+    expect(readOnly.args).toContain("ask");
+    expect(readOnly.args).toContain("enabled");
+    expect(readOnly.args).not.toContain("--force");
+
+    const full = buildAgentInvocation(cursor, "full", "prompt");
+    expect(full.args).toContain("--force");
+    expect(full.args).toContain("--trust");
+    expect(full.args).toContain("stream-json");
+    // The CLI takes the prompt positionally, so it has to come last.
+    expect(full.args.at(-1)).toBe("prompt");
+  });
+
+  it("asks each agent for its own authentication status", () => {
+    expect(supportedAgents.map((agent) => getAuthInvocation(agent))).toEqual([
+      { command: "claude", args: ["auth", "status"] },
+      { command: "codex", args: ["login", "status"] },
+      { command: "cursor-agent", args: ["status", "--format", "json"] },
+    ]);
   });
 
   it("uses Codex sandbox levels", () => {

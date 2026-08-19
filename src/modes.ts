@@ -13,6 +13,15 @@ export const EVALUATION_DOCS_URL =
 export const MANUAL_QUICKSTART_URL =
   "https://www.confident-ai.com/docs/llm-evaluation/quickstart";
 
+/** "A or B", "A, B, or C" — as many agents as the machine has installed. */
+export const listLabels = (
+  names: string[],
+  conjunction: "and" | "or",
+): string =>
+  names.length <= 2
+    ? names.join(` ${conjunction} `)
+    : `${names.slice(0, -1).join(", ")}, ${conjunction} ${names.at(-1)}`;
+
 export const setupModeOptions = (
   detectedAgents: DetectedAgentOption[] = [],
 ): Array<{
@@ -25,7 +34,7 @@ export const setupModeOptions = (
     names.length === 1
       ? `Use detected agent (${names[0]})`
       : names.length > 1
-        ? `Use a detected agent (${names.join(" or ")})`
+        ? `Use a detected agent (${listLabels(names, "or")})`
         : "Use a detected coding agent";
   const detectedHint =
     names.length === 1
@@ -41,7 +50,7 @@ export const setupModeOptions = (
     {
       value: "own-agent",
       label: "Paste a setup prompt into your coding agent",
-      hint: "Copy the prompt, paste it into Cursor or another agent, then return here",
+      hint: "Copy the prompt, paste it into your own agent, then return here",
     },
     {
       value: "manual",

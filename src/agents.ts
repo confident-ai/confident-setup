@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 
-export type AgentKind = "claude" | "codex";
+export type AgentKind = "claude" | "codex" | "cursor";
 export type AgentPermission = "read-only" | "full";
 
 export interface AgentDefinition {
@@ -36,6 +36,7 @@ export type AgentRunner = (
 export const supportedAgents: AgentDefinition[] = [
   { kind: "claude", label: "Claude Code", command: "claude" },
   { kind: "codex", label: "Codex", command: "codex" },
+  { kind: "cursor", label: "Cursor CLI", command: "cursor-agent" },
 ];
 
 export const buildAgentInvocation = (
@@ -72,6 +73,34 @@ export const buildAgentInvocation = (
             ],
     };
   }
+  if (agent.kind === "cursor") {
+    // The prompt is positional for this CLI, so it stays last.
+    return {
+      command: agent.command,
+      args:
+        permission === "read-only"
+          ? [
+              "--print",
+              "--output-format",
+              "json",
+              "--mode",
+              "ask",
+              "--sandbox",
+              "enabled",
+              prompt,
+            ]
+          : [
+              "--print",
+              "--output-format",
+              "stream-json",
+              "--force",
+              "--trust",
+              "--sandbox",
+              "disabled",
+              prompt,
+            ],
+    };
+  }
   return {
     command: agent.command,
     args: [
@@ -89,9 +118,15 @@ export const buildAgentInvocation = (
   };
 };
 
+const authArguments: Record<AgentKind, string[]> = {
+  claude: ["auth", "status"],
+  codex: ["login", "status"],
+  cursor: ["status", "--format", "json"],
+};
+
 export const getAuthInvocation = (agent: AgentDefinition): AgentInvocation => ({
   command: agent.command,
-  args: agent.kind === "claude" ? ["auth", "status"] : ["login", "status"],
+  args: authArguments[agent.kind],
 });
 
 export const runAgent: AgentRunner = (

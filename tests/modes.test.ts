@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   deferredSetupMessage,
   fullPermissionWarning,
+  listLabels,
   MANUAL_QUICKSTART_URL,
   setupModeOptions,
 } from "../src/modes.js";
@@ -46,6 +47,17 @@ describe("mode helpers", () => {
       setupModeOptions([{ label: "Claude Code" }, { label: "Codex" }])[0]
         ?.label,
     ).toBe("Use a detected agent (Claude Code or Codex)");
+    expect(
+      setupModeOptions([
+        { label: "Claude Code" },
+        { label: "Codex" },
+        { label: "Cursor CLI" },
+      ])[0]?.label,
+    ).toBe("Use a detected agent (Claude Code, Codex, or Cursor CLI)");
+    expect(listLabels(["Claude Code", "Codex", "Cursor CLI"], "and")).toBe(
+      "Claude Code, Codex, and Cursor CLI",
+    );
+    expect(listLabels(["Codex"], "and")).toBe("Codex");
   });
 
   it("moves pairing paths to the configured app origin", () => {

@@ -6,10 +6,10 @@ const judgeProvider = {
   id: "anthropic" as const,
   label: "Anthropic",
   hint: "",
-  secretEnvVar: "ANTHROPIC_API_KEY",
+  secrets: [{ envVar: "ANTHROPIC_API_KEY", label: "Anthropic API key" }],
   settings: [{ envVar: "ANTHROPIC_MODEL_NAME", label: "Model" }],
   flags: { USE_ANTHROPIC_MODEL: "true" },
-  precedence: 11,
+  precedence: 12,
 };
 
 describe("agent prompt", () => {

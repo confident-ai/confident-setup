@@ -8,9 +8,6 @@ import pc from "picocolors";
 /** Landing `--brand-violet: #760eff`. */
 const BRAND_RGB = [118, 14, 255] as const;
 
-/** Landing `--accent-label-pink: rgb(231, 0, 116)`, the banner's fade target. */
-const PINK_RGB = [231, 0, 116] as const;
-
 const rgb =
   (red: number, green: number, blue: number) =>
   (text: string): string =>
@@ -29,27 +26,6 @@ export const alert = rgb(255, 65, 1);
 
 /** Landing dark-theme `--text-secondary: #a9afba`, for supporting detail. */
 export const muted = rgb(169, 175, 186);
-
-/**
- * Fade brand violet into accent pink across `span` columns. Columns rather than
- * per-line length keeps the fade vertically aligned across banner rows.
- */
-const gradient = (text: string, span: number): string => {
-  if (!pc.isColorSupported) return text;
-  const characters = [...text];
-  const last = Math.max(span - 1, 1);
-  const painted = characters.map((character, index) => {
-    if (character === " ") return character;
-    const ratio = Math.min(index / last, 1);
-    const channel = (from: number, to: number): number =>
-      Math.round(from + (to - from) * ratio);
-    return `\x1b[38;2;${channel(BRAND_RGB[0], PINK_RGB[0])};${channel(
-      BRAND_RGB[1],
-      PINK_RGB[1],
-    )};${channel(BRAND_RGB[2], PINK_RGB[2])}m${character}`;
-  });
-  return `${painted.join("")}\x1b[39m`;
-};
 
 /** pyfiglet `big_money-ne` "Confident AI", the DeepEval `deepeval login` banner. */
 const WORDMARK_FULL = [
@@ -127,7 +103,7 @@ export const banner = (
 ): string => {
   const tier = WORDMARK_TIERS.find((candidate) => columns >= candidate.columns);
   const wordmark = tier
-    ? tier.rows.map((row) => gradient(row, tier.columns))
+    ? tier.rows.map((row) => brand(row))
     : [brand(pc.bold("CONFIDENT AI"))];
   return [welcomeMessage(), "", ...wordmark, "", muted(stepRoadmap())].join(
     "\n",

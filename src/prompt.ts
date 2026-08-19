@@ -1,12 +1,12 @@
 import canonicalPrompt from "../prompts/evaluation.md";
-import { judgeRequirements, type JudgeProvider } from "./judge.js";
+import { judgeVariables, type JudgeProvider } from "./judge.js";
 
 export const getCanonicalPrompt = (): string => canonicalPrompt.trim();
 
 /** Name the judge without ever naming its value. */
 const describeJudge = (provider: JudgeProvider | undefined): string =>
   provider
-    ? `- Judge model: ${provider.label}, already configured through ${judgeRequirements(
+    ? `- Judge model: ${provider.label}, already configured through ${judgeVariables(
         provider,
       ).join(
         ", ",

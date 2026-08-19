@@ -37,15 +37,20 @@ The wizard runs six labeled steps and shows the whole route up front.
 3. Validates or selects a project and creates a project-scoped API key.
 4. Safely merges `CONFIDENT_API_KEY` into `.env.local`, sets mode `0600`, and
    ensures the file is ignored by Git.
-5. Sets up the judge model that powers LLM metrics. It detects a provider key
-   already present in the environment or `.env.local` the same way DeepEval
-   resolves one, and otherwise offers OpenAI, Anthropic, Gemini, Azure OpenAI,
-   OpenRouter, or a local Ollama model. The key is entered masked and merged
-   into the same `.env.local`. Skipping is allowed and restricts the evaluation
-   to deterministic metrics.
+5. Sets up the judge model that powers LLM metrics, covering every provider
+   DeepEval's `initialize_model` can select: OpenAI, Anthropic, Gemini, Azure
+   OpenAI, Bedrock, OpenRouter, DeepSeek, Grok, Moonshot, LiteLLM, Portkey,
+   Ollama, and any OpenAI-compatible local server. Keys already in the
+   environment or `.env.local` are detected the way DeepEval resolves them and
+   offered for reuse, including a key whose `USE_*` flag is not set yet. Keys
+   are entered masked and merged into the same `.env.local`, along with the
+   provider flag and only the settings DeepEval has no default for. Credentials
+   DeepEval can infer are never demanded: Bedrock can use your AWS credential
+   chain, Gemini on Vertex AI needs no key, and LiteLLM reuses an upstream one.
+   Skipping is allowed and restricts the evaluation to deterministic metrics.
 6. Offers three ways to add the evaluation:
-   - a detected coding agent, named in the prompt when Claude Code or Codex is
-     installed and authenticated;
+   - a detected coding agent, named in the prompt when Claude Code, Codex, or
+     Cursor CLI is installed and authenticated;
    - a prompt you paste into your own coding agent;
    - manual setup using the
      [DeepEval quickstart](https://www.confident-ai.com/docs/llm-evaluation/quickstart).
@@ -53,8 +58,9 @@ The wizard runs six labeled steps and shows the whole route up front.
    Confident API.
 
 Detected agents first pass executable discovery, authentication, and read-only
-smoke checks. The wizard then shows a separate warning and asks again before
-starting full-permission execution.
+smoke checks (Claude plan mode, the Codex read-only sandbox, Cursor ask mode).
+The wizard then shows a separate warning and asks again before starting
+full-permission execution.
 
 If verification fails, the wizard reports why and keeps the generated
 evaluation and credentials in place instead of discarding the run.

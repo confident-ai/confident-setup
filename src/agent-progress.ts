@@ -92,6 +92,54 @@ const parseCodexProgress = (
   return [];
 };
 
+/** Cursor names its tools by the key wrapping them inside `tool_call`. */
+const CURSOR_TOOLS: Record<string, "read" | "edit" | "run"> = {
+  readToolCall: "read",
+  lsToolCall: "read",
+  grepToolCall: "read",
+  globToolCall: "read",
+  editToolCall: "edit",
+  writeToolCall: "edit",
+  deleteToolCall: "edit",
+  shellToolCall: "run",
+};
+
+const parseCursorProgress = (
+  value: unknown,
+  projectDirectory: string,
+): string[] => {
+  const event = asObject(value);
+  if (event.type === "system") return ["Thinking…"];
+  // Every call also arrives as "completed", which would duplicate each line.
+  if (event.type !== "tool_call" || event.subtype !== "started") return [];
+
+  const call = asObject(event.tool_call);
+  const name = Object.keys(call)[0];
+  if (!name) return [];
+  const args = asObject(asObject(call[name]).args);
+  const kind = CURSOR_TOOLS[name];
+  if (kind === "run") return [action("run", asString(args.command))];
+  if (kind) {
+    return [
+      action(
+        kind,
+        displayPath(args.path, projectDirectory) ??
+          asString(args.pattern ?? args.globPattern),
+      ),
+    ];
+  }
+  return [`working: ${clean(asString(asObject(call.function).name) ?? name)}`];
+};
+
+const parsers: Record<
+  AgentKind,
+  (value: unknown, projectDirectory: string) => string[]
+> = {
+  claude: parseClaudeProgress,
+  codex: parseCodexProgress,
+  cursor: parseCursorProgress,
+};
+
 export const parseAgentProgressLine = (
   kind: AgentKind,
   line: string,
@@ -99,9 +147,7 @@ export const parseAgentProgressLine = (
 ): string[] => {
   try {
     const value: unknown = JSON.parse(line);
-    return kind === "claude"
-      ? parseClaudeProgress(value, projectDirectory)
-      : parseCodexProgress(value, projectDirectory);
+    return parsers[kind](value, projectDirectory);
   } catch {
     return [];
   }

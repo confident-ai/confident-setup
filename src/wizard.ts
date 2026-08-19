@@ -44,6 +44,7 @@ import {
   judgeEnvValues,
   judgeMissing,
   judgeProviders,
+  providersWithKey,
   type JudgeProvider,
 } from "./judge.js";
 import {
@@ -59,6 +60,7 @@ import {
   fullPermissionWarning,
   GITHUB_ISSUE_URL,
   judgeSkipWarning,
+  listLabels,
   MANUAL_QUICKSTART_URL,
   promptDeliveryOptions,
   setupModeOptions,
@@ -444,7 +446,10 @@ const discoverReadyAgents = async (
     .map((check) => check.agent);
   if (readyAgents.length) {
     checking.stop(
-      `Detected ${readyAgents.map((agent) => agent.label).join(" and ")}.`,
+      `Detected ${listLabels(
+        readyAgents.map((agent) => agent.label),
+        "and",
+      )}.`,
     );
     return readyAgents;
   }
@@ -480,31 +485,58 @@ const configureJudgeModel = async (
   const env = { ...(await readEnvValues(projectDirectory)), ...process.env };
   const detected = detectJudge(env);
   if (detected && detected.missing.length === 0) {
+    const found = detected.provider.secrets
+      .filter((secret) => env[secret.envVar]?.trim())
+      .map((secret) => secret.envVar);
     detecting.stop(
       `Judge model ready: ${brand(detected.provider.label)}${
-        detected.provider.secretEnvVar
-          ? ` (${detected.provider.secretEnvVar} found)`
-          : ""
+        found.length ? ` (${listLabels(found, "and")} found)` : ""
       }.`,
     );
     return { provider: detected.provider };
   }
+  // Keys DeepEval would ignore today because their provider flag is unset.
+  const reusable = providersWithKey(env).filter(
+    (provider) => provider !== detected?.provider,
+  );
+  const reusableKeys = reusable.flatMap((provider) =>
+    provider.secrets
+      .filter((secret) => (env[secret.envVar] ?? "").trim())
+      .map((secret) => secret.envVar),
+  );
   detecting.stop(
     detected
       ? `${detected.provider.label} is selected but incomplete (missing ${detected.missing.join(", ")}).`
-      : "No judge-model credentials found in this environment.",
+      : reusableKeys.length
+        ? `Found ${listLabels(reusableKeys, "and")} in this environment, but DeepEval is not set to use ${reusableKeys.length > 1 ? "any of them" : "it"} yet.`
+        : "No judge-model credentials found in this environment.",
   );
 
   const choice = requiredPrompt<JudgeProvider | "skip">(
     await select<JudgeProvider | "skip">({
       message: "Which model should judge your evaluation?",
-      ...(detected ? { initialValue: detected.provider } : {}),
+      maxItems: 8,
+      ...(detected || reusable.length
+        ? { initialValue: detected?.provider ?? reusable[0]! }
+        : {}),
       options: [
-        ...judgeProviders.map((provider) => ({
+        // Providers whose key is already here come first, so the common case
+        // is one keystroke rather than a paste.
+        ...reusable.map((provider) => ({
           label: provider.label,
           value: provider,
-          hint: provider.hint,
+          hint: `Reuse the ${provider.secrets
+            .filter((secret) => (env[secret.envVar] ?? "").trim())
+            .map((secret) => secret.envVar)
+            .join(" and ")} already in your environment`,
         })),
+        ...judgeProviders
+          .filter((provider) => !reusable.includes(provider))
+          .map((provider) => ({
+            label: provider.label,
+            value: provider,
+            hint: provider.hint,
+          })),
         {
           label: "Skip for now",
           value: "skip" as const,
@@ -520,16 +552,25 @@ const configureJudgeModel = async (
 
   // Ask only for what this environment cannot already supply.
   const needed = judgeMissing(choice, env);
-  const secret =
-    choice.secretEnvVar && needed.includes(choice.secretEnvVar)
-      ? requiredPrompt(
-          await password({
-            message: `Paste your ${choice.label} API key (saved to .env.local, never displayed)`,
-            validate: (value) =>
-              value?.trim() ? undefined : "An API key is required",
-          }),
-        ).trim()
-      : undefined;
+  const secrets: Record<string, string> = {};
+  for (const secret of choice.secrets) {
+    if ((env[secret.envVar] ?? "").trim()) continue;
+    const required = needed.includes(secret.envVar);
+    const answer = requiredPrompt(
+      await password({
+        message: required
+          ? `Paste your ${secret.label} (saved to .env.local, never displayed)`
+          : `Paste your ${secret.label}, or leave it empty to skip`,
+        ...(required
+          ? {
+              validate: (value: string | undefined) =>
+                value?.trim() ? undefined : "A value is required",
+            }
+          : {}),
+      }),
+    ).trim();
+    if (answer) secrets[secret.envVar] = answer;
+  }
   const settings: Record<string, string> = {};
   for (const setting of choice.settings.filter((candidate) =>
     needed.includes(candidate.envVar),
@@ -543,12 +584,16 @@ const configureJudgeModel = async (
     ).trim();
   }
 
-  await writeEnvValues(
-    projectDirectory,
-    judgeEnvValues(choice, { ...(secret ? { secret } : {}), settings }),
-  );
+  const values = judgeEnvValues(choice, { secrets, settings });
+  if (Object.keys(values).length)
+    await writeEnvValues(projectDirectory, values);
+  const reused = choice.secrets
+    .filter((secret) => !secrets[secret.envVar] && env[secret.envVar]?.trim())
+    .map((secret) => secret.envVar);
   log.success(
-    `Saved ${choice.label} judge-model settings to .env.local. DeepEval loads them from there.`,
+    reused.length
+      ? `Selected ${choice.label} in .env.local. DeepEval reads ${listLabels(reused, "and")} from your environment.`
+      : `Saved ${choice.label} judge-model settings to .env.local. DeepEval loads them from there.`,
   );
   return { provider: choice };
 };

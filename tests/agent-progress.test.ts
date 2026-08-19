@@ -43,6 +43,46 @@ describe("agent progress rendering", () => {
     ]);
   });
 
+  it("turns Cursor tool calls into concise progress lines", () => {
+    const started = (toolCall: unknown): string =>
+      JSON.stringify({
+        type: "tool_call",
+        subtype: "started",
+        tool_call: toolCall,
+      });
+
+    expect(
+      parseAgentProgressLine(
+        "cursor",
+        started({ editToolCall: { args: { path: "/repo/evals/smoke.py" } } }),
+        "/repo",
+      ),
+    ).toEqual(["edit: evals/smoke.py"]);
+    expect(
+      parseAgentProgressLine(
+        "cursor",
+        started({ shellToolCall: { args: { command: "npm test" } } }),
+        "/repo",
+      ),
+    ).toEqual(["run: npm test"]);
+    expect(
+      parseAgentProgressLine(
+        "cursor",
+        started({ grepToolCall: { args: { pattern: "AnswerRelevancy" } } }),
+        "/repo",
+      ),
+    ).toEqual(["read: AnswerRelevancy"]);
+  });
+
+  it("reports a Cursor tool call once, not again on completion", () => {
+    const completed = JSON.stringify({
+      type: "tool_call",
+      subtype: "completed",
+      tool_call: { readToolCall: { args: { path: "/repo/app.py" } } },
+    });
+    expect(parseAgentProgressLine("cursor", completed, "/repo")).toEqual([]);
+  });
+
   it("ignores incidental non-JSON output", () => {
     expect(parseAgentProgressLine("claude", "Starting...", "/repo")).toEqual(
       [],
