@@ -126,7 +126,11 @@ export const runAgent: AgentRunner = (
     }
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
-      reject(new Error(`${invocation.command} check timed out.`));
+      reject(
+        new Error(
+          `${invocation.command} timed out after ${Math.round(timeoutMs / 1000)}s.`,
+        ),
+      );
     }, timeoutMs);
     child.on("error", (error) => {
       clearTimeout(timer);

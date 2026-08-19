@@ -1,6 +1,10 @@
 export type SetupMode = "built-in" | "own-agent" | "manual";
 export type PromptDelivery = "clipboard" | "terminal";
 
+export interface DetectedAgentOption {
+  label: string;
+}
+
 export const GITHUB_ISSUE_URL =
   "https://github.com/confident-ai/confident-setup/issues/new";
 export const SUPPORT_URL = "https://www.confident-ai.com/contact";
@@ -9,27 +13,43 @@ export const EVALUATION_DOCS_URL =
 export const MANUAL_QUICKSTART_URL =
   "https://www.confident-ai.com/docs/llm-evaluation/quickstart";
 
-export const setupModeOptions: Array<{
+export const setupModeOptions = (
+  detectedAgents: DetectedAgentOption[] = [],
+): Array<{
   value: SetupMode;
   label: string;
   hint: string;
-}> = [
-  {
-    value: "built-in",
-    label: "Use built-in coding agent",
-    hint: "Launch a locally installed coding agent",
-  },
-  {
-    value: "own-agent",
-    label: "Use your own coding agent",
-    hint: "Copy a suggested prompt into your agent",
-  },
-  {
-    value: "manual",
-    label: "Set up manually",
-    hint: "Use the DeepEval evaluation docs",
-  },
-];
+}> => {
+  const names = detectedAgents.map((agent) => agent.label);
+  const detectedLabel =
+    names.length === 1
+      ? `Use detected agent (${names[0]})`
+      : names.length > 1
+        ? `Use a detected agent (${names.join(" or ")})`
+        : "Use a detected coding agent";
+  const detectedHint =
+    names.length === 1
+      ? `Launch ${names[0]} in this folder with a prepared evaluation prompt`
+      : "Launch Claude Code or Codex in this folder with a prepared evaluation prompt";
+
+  return [
+    {
+      value: "built-in",
+      label: detectedLabel,
+      hint: detectedHint,
+    },
+    {
+      value: "own-agent",
+      label: "Paste a setup prompt into your coding agent",
+      hint: "Copy the prompt, paste it into Cursor or another agent, then return here",
+    },
+    {
+      value: "manual",
+      label: "Follow the DeepEval docs yourself",
+      hint: "Open the evaluation quickstart and wire DeepEval up manually",
+    },
+  ];
+};
 
 export const promptDeliveryOptions: Array<{
   value: PromptDelivery;
@@ -38,13 +58,13 @@ export const promptDeliveryOptions: Array<{
 }> = [
   {
     value: "clipboard",
-    label: "Copy to clipboard",
-    hint: "Paste it into your coding agent",
+    label: "Copy the prompt to the clipboard",
+    hint: "Paste it into your coding agent as the next message",
   },
   {
     value: "terminal",
-    label: "Print to terminal",
-    hint: "Review or copy the full prompt here",
+    label: "Print the prompt in this terminal",
+    hint: "Copy it from here into your coding agent",
   },
 ];
 
@@ -56,4 +76,4 @@ export const deferredSetupMessage = (
 ): string =>
   mode === "manual"
     ? `Finish the evaluation later with ${MANUAL_QUICKSTART_URL}`
-    : "Run the supplied prompt in your agent. The wizard can verify the test run after the agent returns a structured result.";
+    : "Paste the supplied prompt into your coding agent. Return here after it finishes if you want the wizard to verify the test run.";

@@ -29,6 +29,27 @@ export interface TelemetryEvent {
   elapsedMs?: number;
 }
 
+type TelemetryErrorCode = NonNullable<TelemetryEvent["errorCode"]>;
+
+/** Map a thrown error onto a coarse code, never onto its message. */
+export const classifyErrorCode = (error: unknown): TelemetryErrorCode => {
+  const message = (
+    error instanceof Error ? error.message : String(error)
+  ).toLowerCase();
+  if (/timed out|timeout|etimedout/.test(message)) return "timeout";
+  if (/permission|forbidden|denied|eacces|eperm/.test(message)) {
+    return "permission_denied";
+  }
+  if (/fetch failed|network|socket|enotfound|econnrefused|dns/.test(message)) {
+    return "network";
+  }
+  if (/exited with|spawn|enoent/.test(message)) return "command_failed";
+  if (/invalid|expired|not available|does not exist|required/.test(message)) {
+    return "invalid_configuration";
+  }
+  return "unknown";
+};
+
 export const redactTelemetry = (value: unknown): unknown => {
   if (
     value === null ||

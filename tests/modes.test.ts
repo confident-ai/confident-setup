@@ -26,13 +26,24 @@ const onboarding = {
 
 describe("mode helpers", () => {
   it("defines all three setup modes", () => {
-    expect(setupModeOptions.map((option) => option.value)).toEqual([
+    expect(setupModeOptions().map((option) => option.value)).toEqual([
       "built-in",
       "own-agent",
       "manual",
     ]);
     expect(fullPermissionWarning("Codex")).toContain("full permission");
     expect(deferredSetupMessage("manual")).toContain(MANUAL_QUICKSTART_URL);
+  });
+
+  it("names detected agents and explains paste-your-own-prompt", () => {
+    const [detected, own] = setupModeOptions([{ label: "Claude Code" }]);
+    expect(detected?.label).toBe("Use detected agent (Claude Code)");
+    expect(detected?.hint).toContain("Launch Claude Code");
+    expect(own?.label).toBe("Paste a setup prompt into your coding agent");
+    expect(
+      setupModeOptions([{ label: "Claude Code" }, { label: "Codex" }])[0]
+        ?.label,
+    ).toBe("Use a detected agent (Claude Code or Codex)");
   });
 
   it("moves pairing paths to the configured app origin", () => {

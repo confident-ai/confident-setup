@@ -20,7 +20,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "wizard:sandbox": "node dist/cli.js --project-dir examples/agent-sandbox"
   },
   "keywords": [
     "confident-ai",

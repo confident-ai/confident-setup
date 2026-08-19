@@ -90,14 +90,13 @@ export const helpText = `Confident AI Setup Wizard
 Usage: confident-setup [options]
 
 Options:
-  --from <source>   Setup entry point attribution (default: direct)
-  --project-dir <path>
-                      Project directory (default: current directory)
-  --app-url <url>   Confident app URL (default: https://app.confident-ai.com)
-  --api-url <url>   Confident API URL (default: https://api.confident-ai.com)
-  --org-id <id>     Require this organization
-  --proj-id <id>    Select this project
-  -h, --help        Show help
+  --from <source>        Setup entry point attribution (default: direct)
+  --project-dir <path>   Project directory (default: current directory)
+  --app-url <url>        Confident app URL (default: https://app.confident-ai.com)
+  --api-url <url>        Confident API URL (default: https://api.confident-ai.com)
+  --org-id <id>          Require this organization
+  --proj-id <id>         Select this project
+  -h, --help             Show help
 `;
 
 export const requireInteractiveTty = (

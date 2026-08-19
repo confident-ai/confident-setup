@@ -1,6 +1,4 @@
-import { constants } from "node:fs";
 import {
-  access,
   chmod,
   lstat,
   readFile,
@@ -107,13 +105,4 @@ export const ensureEnvLocalIgnored = async (
   const next = `${content}${content && !content.endsWith("\n") ? newline : ""}.env.local${newline}`;
   await writeFile(path, next, { encoding: "utf8", mode: 0o644 });
   return true;
-};
-
-export const pathExists = async (path: string): Promise<boolean> => {
-  try {
-    await access(path, constants.F_OK);
-    return true;
-  } catch {
-    return false;
-  }
 };

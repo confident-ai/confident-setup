@@ -1,8 +1,29 @@
 import { z } from "zod";
 
+export const testRunStatuses = [
+  "IN_PROGRESS",
+  "COMPLETED",
+  "ERRORED",
+  "CANCELLED",
+] as const;
+
+const testRunSchema = z.object({
+  data: z
+    .object({
+      status: z.enum(testRunStatuses).optional(),
+      totalTests: z.number().optional(),
+      testsPassed: z.number().optional(),
+      testsFailed: z.number().optional(),
+    })
+    .optional(),
+});
+
+export type TestRunStatus = (typeof testRunStatuses)[number];
+
 export interface VerificationResult {
   testRunId: string;
   testRunUrl: string;
+  status?: TestRunStatus;
 }
 
 export const buildTestRunUrl = (
@@ -23,15 +44,23 @@ export const verifyTestRun = async (
   const id = z.string().trim().min(1).parse(testRunId);
   const response = await fetchImplementation(
     `${apiUrl.replace(/\/+$/, "")}/v1/test-runs/${encodeURIComponent(id)}`,
-    { headers: { authorization: `Bearer ${apiKey}` } },
+    { headers: { CONFIDENT_API_KEY: apiKey } },
   );
   if (!response.ok) {
     throw new Error(
       `Test run ${id} could not be verified (${response.status}).`,
     );
   }
+
+  const body: unknown = await response.json().catch(() => ({}));
+  const status = testRunSchema.safeParse(body).data?.data?.status;
+  if (status === "ERRORED" || status === "CANCELLED") {
+    throw new Error(`Test run ${id} finished with status ${status}.`);
+  }
+
   return {
     testRunId: id,
     testRunUrl: buildTestRunUrl(appUrl, projectId, id),
+    ...(status ? { status } : {}),
   };
 };

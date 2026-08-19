@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { redactTelemetry, SetupTelemetry } from "../src/telemetry.js";
+import {
+  classifyErrorCode,
+  redactTelemetry,
+  SetupTelemetry,
+} from "../src/telemetry.js";
 
 describe("telemetry redaction", () => {
   it("redacts sensitive keys and token-shaped values recursively", () => {
@@ -21,6 +25,23 @@ describe("telemetry redaction", () => {
         detail: "[REDACTED]",
       },
     });
+  });
+
+  it("classifies failures into codes that carry no message text", () => {
+    expect(classifyErrorCode(new Error("claude timed out after 1800s."))).toBe(
+      "timeout",
+    );
+    expect(classifyErrorCode(new Error("EACCES: open .env.local"))).toBe(
+      "permission_denied",
+    );
+    expect(classifyErrorCode(new Error("fetch failed"))).toBe("network");
+    expect(classifyErrorCode(new Error("codex exited with 1"))).toBe(
+      "command_failed",
+    );
+    expect(classifyErrorCode(new Error("Project abc is not available."))).toBe(
+      "invalid_configuration",
+    );
+    expect(classifyErrorCode("something else entirely")).toBe("unknown");
   });
 
   it("does not send when disabled", async () => {

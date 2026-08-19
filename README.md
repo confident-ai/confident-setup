@@ -15,19 +15,20 @@ curl -fsSL "https://www.confident-ai.com/wizard/setup.sh" | sh
 Options:
 
 ```text
---from <source>   Setup entry point attribution (default: direct)
---project-dir <path>
-                    Project directory (default: current directory)
---app-url <url>   Confident app URL
---api-url <url>   Confident API URL
---org-id <id>     Require this organization
---proj-id <id>    Select this project
+--from <source>        Setup entry point attribution (default: direct)
+--project-dir <path>   Project directory (default: current directory)
+--app-url <url>        Confident app URL
+--api-url <url>        Confident API URL
+--org-id <id>          Require this organization
+--proj-id <id>         Select this project
 ```
 
 The default services are `https://app.confident-ai.com` and
 `https://api.confident-ai.com`.
 
 ## What it does
+
+The wizard runs five labeled steps and shows how many remain.
 
 1. Checks Git and asks explicitly before continuing in a dirty or non-Git
    directory.
@@ -36,17 +37,21 @@ The default services are `https://app.confident-ai.com` and
 3. Validates or selects a project and creates a project-scoped API key.
 4. Safely merges `CONFIDENT_API_KEY` into `.env.local`, sets mode `0600`, and
    ensures the file is ignored by Git.
-5. Offers three evaluation setup modes:
-   - built-in Claude Code or Codex;
-   - your own agent via a copied or printed prompt;
+5. Offers three ways to add the evaluation:
+   - a detected coding agent, named in the prompt when Claude Code or Codex is
+     installed and authenticated;
+   - a prompt you paste into your own coding agent;
    - manual setup using the
      [DeepEval quickstart](https://www.confident-ai.com/docs/llm-evaluation/quickstart).
-6. Validates the agent's structured result and verifies a completed test run
-   with the Confident API.
+6. Validates the agent's structured result and verifies its test run with the
+   Confident API.
 
-Built-in agents first pass executable discovery, authentication, and read-only
+Detected agents first pass executable discovery, authentication, and read-only
 smoke checks. The wizard then shows a separate warning and asks again before
 starting full-permission execution.
+
+If verification fails, the wizard reports why and keeps the generated
+evaluation and credentials in place instead of discarding the run.
 
 ## Security
 
@@ -67,6 +72,16 @@ npm install
 npm run check
 npm run build
 ```
+
+`src/prompt.ts` imports `prompts/evaluation.md` as text, which only the bundler
+resolves, so run the built CLI rather than the TypeScript entry point:
+
+```sh
+node dist/cli.js --help
+```
+
+`examples/agent-sandbox` is a disposable retrieval augmented chatbot to try the
+whole flow against. `npm run wizard:sandbox` points the built CLI at it.
 
 `npm run build:sea` creates a Node Single Executable Application in `release/`.
 Tagged releases build darwin/linux x64/arm64 archives and `SHA256SUMS`.

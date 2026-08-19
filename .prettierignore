@@ -3,3 +3,6 @@ release
 coverage
 node_modules
 package-lock.json
+examples/**/.pytest_cache
+examples/**/.deepeval
+examples/**/__pycache__

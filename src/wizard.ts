@@ -56,8 +56,9 @@ import {
 } from "./modes.js";
 import { buildAgentPrompt } from "./prompt.js";
 import { readSetupResult, type SetupResult } from "./result.js";
-import { SetupTelemetry } from "./telemetry.js";
-import { verifyTestRun } from "./verification.js";
+import { classifyErrorCode, SetupTelemetry } from "./telemetry.js";
+import { brand, link, ok, stepHeading } from "./theme.js";
+import { verifyTestRun, type VerificationResult } from "./verification.js";
 
 class WizardCancelledError extends Error {}
 
@@ -292,8 +293,15 @@ const showOwnAgentPrompt = async (
     process.stdout.write(`\n${prompt}\n\n`);
   }
   note(
-    `DeepEval can load the project credential from .env.local automatically; never ask the agent to read that file.\nThe prompt contains the structured result path: ${resultFile}`,
-    "Run with your own agent",
+    [
+      "Paste the prompt into your coding agent as the next message.",
+      "Let it finish building and running the evaluation in this project.",
+      "Come back here and confirm when it is done.",
+      "",
+      "DeepEval loads CONFIDENT_API_KEY from .env.local. Do not ask the agent to read that file.",
+      `The prompt already includes the result path: ${resultFile}`,
+    ].join("\n"),
+    "What to do next",
   );
 };
 
@@ -301,7 +309,7 @@ const summarizeResult = (result: SetupResult, testRunUrl?: string): string => {
   const lines = [
     `Status: ${
       result.status === "completed"
-        ? pc.green(result.status)
+        ? ok(result.status)
         : result.status === "partial"
           ? pc.yellow(result.status)
           : pc.red(result.status)
@@ -312,14 +320,14 @@ const summarizeResult = (result: SetupResult, testRunUrl?: string): string => {
     `Metrics: ${result.metrics.join(", ") || "none"}`,
     `Rerun: ${pc.bold(result.rerunCommand)}`,
   ];
-  if (testRunUrl) lines.push(`Test run: ${pc.cyan(testRunUrl)}`);
+  if (testRunUrl) lines.push(`Test run: ${link(testRunUrl)}`);
   if (result.errors?.length) lines.push(`Issues: ${result.errors.join("; ")}`);
   return lines.join("\n");
 };
 
 const completionOutro = (verified: boolean): string =>
   [
-    pc.dim("Confident AI local evaluation setup complete."),
+    `${brand("Confident AI")} ${pc.dim("local evaluation setup complete.")}`,
     "",
     verified
       ? "Your evaluation is ready to rerun and review in Confident AI."
@@ -336,7 +344,7 @@ const verifyTestRunWithProgress = async (
   apiKey: string,
   projectId: string,
   testRunId: string,
-): Promise<string> => {
+): Promise<VerificationResult | undefined> => {
   const verifying = spinner();
   verifying.start("Verifying Confident AI test run…");
   try {
@@ -347,11 +355,21 @@ const verifyTestRunWithProgress = async (
       projectId,
       testRunId,
     );
-    verifying.stop("Confident AI test run verified.");
-    return result.testRunUrl;
+    verifying.stop(
+      result.status && result.status !== "COMPLETED"
+        ? `Test run found on Confident AI (status: ${result.status}).`
+        : "Confident AI test run verified.",
+    );
+    return result;
   } catch (error) {
     verifying.stop("Test-run verification failed.");
-    throw error;
+    log.warn(
+      [
+        error instanceof Error ? error.message : String(error),
+        "Your evaluation files and project credentials were left in place.",
+      ].join(" "),
+    );
+    return undefined;
   }
 };
 
@@ -409,7 +427,9 @@ const discoverReadyAgents = async (
     .filter((check) => check.readOnlyReady)
     .map((check) => check.agent);
   if (readyAgents.length) {
-    checking.stop("Coding agent search complete.");
+    checking.stop(
+      `Detected ${readyAgents.map((agent) => agent.label).join(" and ")}.`,
+    );
     return readyAgents;
   }
 
@@ -423,8 +443,8 @@ const discoverReadyAgents = async (
     return `- ${check.agent.label}: ${status}`;
   });
   note(
-    `${details.join("\n")}\n\nUse your own coding agent or the DeepEval docs instead.`,
-    "Built-in setup unavailable",
+    `${details.join("\n")}\n\nPaste the prompt into your own coding agent, or follow the DeepEval docs instead.`,
+    "No agent to launch for you",
   );
   return [];
 };
@@ -434,7 +454,7 @@ const runBuiltInMode = async (
   apiKey: string,
   projectId: string,
   readyAgents: AgentDefinition[],
-): Promise<SetupResult> => {
+): Promise<{ result: SetupResult; verified: boolean }> => {
   if (!readyAgents.length) {
     throw new Error("No built-in coding agent is available.");
   }
@@ -443,10 +463,11 @@ const runBuiltInMode = async (
       ? readyAgents[0]!
       : requiredPrompt<AgentDefinition>(
           await select({
-            message: "Choose an agent",
+            message: "Which detected agent should we launch?",
             options: readyAgents.map((candidate) => ({
               label: candidate.label,
               value: candidate,
+              hint: `Run ${candidate.label} in this project`,
             })),
           }),
         );
@@ -508,16 +529,18 @@ const runBuiltInMode = async (
       resultFile.path,
     );
     const result = await readSetupResult(resultFile.path);
-    if (result.status === "completed") {
-      result.testRunUrl = await verifyTestRunWithProgress(
-        args,
-        apiKey,
-        projectId,
-        result.testRunId!,
-      );
-    }
+    const verification =
+      result.status === "completed"
+        ? await verifyTestRunWithProgress(
+            args,
+            apiKey,
+            projectId,
+            result.testRunId!,
+          )
+        : undefined;
+    if (verification) result.testRunUrl = verification.testRunUrl;
     note(summarizeResult(result, result.testRunUrl), "Evaluation setup result");
-    return result;
+    return { result, verified: Boolean(verification) };
   } finally {
     await rm(resultFile.directory, { recursive: true, force: true });
   }
@@ -532,17 +555,17 @@ const finishOwnAgentMode = async (
   const decision = requiredPrompt<"finished" | "later">(
     await select({
       message:
-        "Paste the prompt into your coding agent, then continue when it has finished.",
+        "After you paste the prompt into your coding agent and it finishes, continue here.",
       options: [
         {
-          label: "Confirm and proceed",
+          label: "The agent finished — verify the test run",
           value: "finished",
-          hint: "Read and verify the structured result",
+          hint: "Read the structured result file",
         },
         {
-          label: "Finish verification later",
+          label: "I'll finish later",
           value: "later",
-          hint: "Keep the generated prompt and credentials",
+          hint: "Keep the prompt and credentials",
         },
       ],
     }),
@@ -554,16 +577,17 @@ const finishOwnAgentMode = async (
 
   try {
     const result = await readSetupResult(resultFile.path);
-    if (result.testRunId) {
-      result.testRunUrl = await verifyTestRunWithProgress(
-        args,
-        apiKey,
-        projectId,
-        result.testRunId,
-      );
-    }
+    const verification = result.testRunId
+      ? await verifyTestRunWithProgress(
+          args,
+          apiKey,
+          projectId,
+          result.testRunId,
+        )
+      : undefined;
+    if (verification) result.testRunUrl = verification.testRunUrl;
     note(summarizeResult(result, result.testRunUrl), "Evaluation setup result");
-    return result.status === "completed" && Boolean(result.testRunUrl);
+    return result.status === "completed" && Boolean(verification);
   } finally {
     await rm(resultFile.directory, { recursive: true, force: true });
   }
@@ -578,7 +602,7 @@ const finishManualMode = async (
     await select({
       message: [
         "Follow the DeepEval evaluation quickstart for your project:",
-        pc.cyan(MANUAL_QUICKSTART_URL),
+        link(MANUAL_QUICKSTART_URL),
         "",
         pc.bold("Did you complete and run the evaluation?"),
       ].join("\n"),
@@ -604,13 +628,14 @@ const finishManualMode = async (
       validate: (value) => (value?.trim() ? undefined : "Required"),
     }),
   ).trim();
-  const testRunUrl = await verifyTestRunWithProgress(
+  const verification = await verifyTestRunWithProgress(
     args,
     apiKey,
     projectId,
     testRunId,
   );
-  note(testRunUrl, "Verified Confident AI test run");
+  if (!verification) return false;
+  note(link(verification.testRunUrl), "Verified Confident AI test run");
   return true;
 };
 
@@ -622,7 +647,7 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
 
   const telemetry = new SetupTelemetry(args.apiUrl);
   process.stdout.write("\n");
-  intro("Confident AI Setup Wizard");
+  intro(`${brand("Confident AI")}  ${pc.dim("evaluation setup")}`);
 
   try {
     const gitStatus = await inspectGit(args.projectDir);
@@ -630,6 +655,7 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
       await confirmUnsafeGitState(gitStatus);
     }
 
+    log.message(stepHeading(1));
     const api = new ConfidentApi(args.apiUrl);
     const session = await api.createAuthSession({
       purpose: "evaluation_setup",
@@ -663,7 +689,7 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
         pc.dim(
           "If your browser did not open automatically, open the link below:",
         ),
-        pc.cyan(pairingUrl),
+        link(pairingUrl),
       ].join("\n"),
     );
     await open(pairingUrl).catch(() => {
@@ -696,7 +722,7 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
       onboarding.state === "existing_user" &&
         onboarding.organization &&
         browserProject
-        ? `Browser setup complete. (org: ${pc.green(onboarding.organization.name)}, project: ${pc.green(browserProject.name)})`
+        ? `Browser setup complete. (org: ${ok(onboarding.organization.name)}, project: ${ok(browserProject.name)})`
         : authorization.email
           ? `Browser sign-in complete (${authorization.email}).`
           : "Browser sign-in complete.",
@@ -707,6 +733,7 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
       result: "succeeded",
     });
 
+    log.message(stepHeading(2));
     const completion = await chooseAndCompleteProject(
       api,
       authorization.setupToken,
@@ -725,6 +752,7 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
       }
     }
 
+    log.message(stepHeading(3));
     await writeApiKey(args.projectDir, completion.apiKey);
     const gitignoreChanged = await ensureEnvLocalIgnored(
       args.projectDir,
@@ -735,11 +763,12 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
       log.info("Added .env.local to .gitignore.");
     }
 
+    log.message(stepHeading(4));
     const readyAgents = await discoverReadyAgents(args.projectDir);
     const mode = requiredPrompt<SetupMode>(
       await select({
-        message: "How do you want to add an evaluation to your application?",
-        options: setupModeOptions.filter(
+        message: "How should we add the evaluation?",
+        options: setupModeOptions(readyAgents).filter(
           (option) => option.value !== "built-in" || readyAgents.length > 0,
         ),
       }),
@@ -750,8 +779,18 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
       result: "started",
     });
 
+    log.message(
+      stepHeading(
+        5,
+        mode === "built-in"
+          ? "Launch the detected agent"
+          : mode === "own-agent"
+            ? "Paste the prompt into your agent"
+            : "Follow the DeepEval quickstart",
+      ),
+    );
     if (mode === "built-in") {
-      const result = await runBuiltInMode(
+      const { verified } = await runBuiltInMode(
         args,
         completion.apiKey,
         completion.projectId,
@@ -760,9 +799,9 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
       await telemetry.send({
         event: "setup_completed",
         step: "evaluation",
-        result: result.status === "completed" ? "succeeded" : "failed",
+        result: verified ? "succeeded" : "failed",
       });
-      outro(completionOutro(result.status === "completed"));
+      outro(completionOutro(verified));
       return;
     }
 
@@ -771,7 +810,7 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
       const resultFile = await prepareResultFile();
       const delivery = requiredPrompt<PromptDelivery>(
         await select({
-          message: "How should the agent prompt be delivered?",
+          message: "How should we give you the prompt to paste?",
           options: promptDeliveryOptions,
         }),
       );
@@ -808,7 +847,7 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
       event: "setup_failed",
       step: "configuration",
       result: "failed",
-      errorCode: "unknown",
+      errorCode: classifyErrorCode(error),
     });
     throw error;
   }
