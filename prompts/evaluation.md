@@ -11,6 +11,10 @@ integration.
   environment or the project dotenv configured by the wizard. Use it only
   through the SDK; never copy it into source, output, commands, logs, or result
   files.
+- Judge-model credentials reach DeepEval the same way. The runtime context below
+  names the configured provider; select metrics that its judge can serve, and
+  never read, print, or hardcode provider keys. When no judge is configured,
+  ship deterministic metrics only.
 - Inspect the application, package manifests, tests, and existing evaluation
   code before editing. Preserve the project's conventions.
 - Obtain user consent before generating synthetic dataset rows or running

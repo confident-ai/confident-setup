@@ -21,8 +21,12 @@ npm run build
   boundaries.
 - Never log, serialize, pass as an argument, or send telemetry containing an
   API key or setup token.
-- Preserve `.env.local` contents when changing the Confident key, reject
-  symlinks, and retain mode `0600`.
+- Preserve `.env.local` contents when changing the Confident key or judge-model
+  keys, reject symlinks, and retain mode `0600`.
+- `src/judge.ts` mirrors DeepEval's own judge resolution: `USE_*` flags first,
+  then the OpenAI fallback. Change it only against DeepEval's
+  `initialize_model`, and keep judge secrets masked at entry and absent from
+  logs and prompts, which name only their variables.
 - Network behavior must be mockable; unit tests must not access the network.
 - Browser auth and onboarding endpoints are existing API contracts. Validate
   their responses.

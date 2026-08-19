@@ -9,6 +9,7 @@ import {
   multiselect,
   note,
   outro,
+  password,
   select,
   taskLog,
   text,
@@ -31,8 +32,20 @@ import type {
 } from "./api.js";
 import { ConfidentApi } from "./api.js";
 import type { CliArgs } from "./args.js";
-import { ensureEnvLocalIgnored, writeApiKey } from "./env.js";
+import {
+  CONFIDENT_API_KEY,
+  ensureEnvLocalIgnored,
+  readEnvValues,
+  writeEnvValues,
+} from "./env.js";
 import { describeGitStatus, inspectGit, runCommand } from "./git.js";
+import {
+  detectJudge,
+  judgeEnvValues,
+  judgeMissing,
+  judgeProviders,
+  type JudgeProvider,
+} from "./judge.js";
 import {
   applyCustomSelection,
   enforceExclusiveSelection,
@@ -45,6 +58,7 @@ import {
   EVALUATION_DOCS_URL,
   fullPermissionWarning,
   GITHUB_ISSUE_URL,
+  judgeSkipWarning,
   MANUAL_QUICKSTART_URL,
   promptDeliveryOptions,
   setupModeOptions,
@@ -60,6 +74,11 @@ import { log, spinner } from "./ui.js";
 import { verifyTestRun, type VerificationResult } from "./verification.js";
 
 class WizardCancelledError extends Error {}
+
+/** The judge model the evaluation may use, absent when the user skipped it. */
+export interface JudgeSelection {
+  provider?: JudgeProvider;
+}
 
 const showCancellation = (message = "Setup cancelled."): void => {
   cancel(
@@ -446,11 +465,100 @@ const discoverReadyAgents = async (
   return [];
 };
 
+/**
+ * DeepEval cannot run an LLM judge without provider credentials, so this either
+ * confirms what the environment already offers or collects one key and writes it
+ * beside `CONFIDENT_API_KEY`. The secret is only ever passed to the dotenv
+ * writer: it is never logged, echoed, or handed to an agent as an argument.
+ */
+const configureJudgeModel = async (
+  projectDirectory: string,
+): Promise<JudgeSelection> => {
+  const detecting = spinner();
+  detecting.start("Looking for judge-model credentials…");
+  // DeepEval autoloads `.env.local` but lets the real environment win.
+  const env = { ...(await readEnvValues(projectDirectory)), ...process.env };
+  const detected = detectJudge(env);
+  if (detected && detected.missing.length === 0) {
+    detecting.stop(
+      `Judge model ready: ${brand(detected.provider.label)}${
+        detected.provider.secretEnvVar
+          ? ` (${detected.provider.secretEnvVar} found)`
+          : ""
+      }.`,
+    );
+    return { provider: detected.provider };
+  }
+  detecting.stop(
+    detected
+      ? `${detected.provider.label} is selected but incomplete (missing ${detected.missing.join(", ")}).`
+      : "No judge-model credentials found in this environment.",
+  );
+
+  const choice = requiredPrompt<JudgeProvider | "skip">(
+    await select<JudgeProvider | "skip">({
+      message: "Which model should judge your evaluation?",
+      ...(detected ? { initialValue: detected.provider } : {}),
+      options: [
+        ...judgeProviders.map((provider) => ({
+          label: provider.label,
+          value: provider,
+          hint: provider.hint,
+        })),
+        {
+          label: "Skip for now",
+          value: "skip" as const,
+          hint: "Deterministic metrics only until you add a key",
+        },
+      ],
+    }),
+  );
+  if (choice === "skip") {
+    log.warn(judgeSkipWarning);
+    return {};
+  }
+
+  // Ask only for what this environment cannot already supply.
+  const needed = judgeMissing(choice, env);
+  const secret =
+    choice.secretEnvVar && needed.includes(choice.secretEnvVar)
+      ? requiredPrompt(
+          await password({
+            message: `Paste your ${choice.label} API key (saved to .env.local, never displayed)`,
+            validate: (value) =>
+              value?.trim() ? undefined : "An API key is required",
+          }),
+        ).trim()
+      : undefined;
+  const settings: Record<string, string> = {};
+  for (const setting of choice.settings.filter((candidate) =>
+    needed.includes(candidate.envVar),
+  )) {
+    settings[setting.envVar] = requiredPrompt(
+      await text({
+        message: setting.label,
+        ...(setting.placeholder ? { placeholder: setting.placeholder } : {}),
+        validate: (value) => (value?.trim() ? undefined : "Required"),
+      }),
+    ).trim();
+  }
+
+  await writeEnvValues(
+    projectDirectory,
+    judgeEnvValues(choice, { ...(secret ? { secret } : {}), settings }),
+  );
+  log.success(
+    `Saved ${choice.label} judge-model settings to .env.local. DeepEval loads them from there.`,
+  );
+  return { provider: choice };
+};
+
 const runBuiltInMode = async (
   args: CliArgs,
   apiKey: string,
   projectId: string,
   readyAgents: AgentDefinition[],
+  judge: JudgeSelection,
 ): Promise<{ result: SetupResult; verified: boolean }> => {
   if (!readyAgents.length) {
     throw new Error("No built-in coding agent is available.");
@@ -491,31 +599,32 @@ const runBuiltInMode = async (
     throw new WizardCancelledError("Full-permission execution declined.");
   }
 
-  const paidModelRunConsent =
-    requiredPrompt<"allow" | "deterministic">(
-      await select({
-        message:
-          "May the agent run model-backed evaluation metrics that can incur provider usage?",
-        options: [
-          {
-            label: "Allow model-backed metrics",
-            value: "allow",
-            hint: "Run the selected evaluation now",
-          },
-          {
-            label: "Use deterministic metrics only",
-            value: "deterministic",
-            hint: "Avoid model-provider usage",
-          },
-        ],
-      }),
-    ) === "allow";
+  const paidModelRunConsent = judge.provider
+    ? requiredPrompt<"allow" | "deterministic">(
+        await select({
+          message: `May the agent run ${judge.provider.label} judge metrics that can incur provider usage?`,
+          options: [
+            {
+              label: "Allow model-backed metrics",
+              value: "allow",
+              hint: "Run the selected evaluation now",
+            },
+            {
+              label: "Use deterministic metrics only",
+              value: "deterministic",
+              hint: "Avoid model-provider usage",
+            },
+          ],
+        }),
+      ) === "allow"
+    : false;
 
   const resultFile = await prepareResultFile();
   const prompt = buildAgentPrompt(
     args.projectDir,
     resultFile.path,
     paidModelRunConsent,
+    judge,
   );
   try {
     await executeAgentWithProgress(
@@ -750,7 +859,9 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
     }
 
     log.message(stepHeading(3));
-    await writeApiKey(args.projectDir, completion.apiKey);
+    await writeEnvValues(args.projectDir, {
+      [CONFIDENT_API_KEY]: completion.apiKey,
+    });
     const gitignoreChanged = await ensureEnvLocalIgnored(
       args.projectDir,
       runCommand,
@@ -761,6 +872,9 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
     }
 
     log.message(stepHeading(4));
+    const judge = await configureJudgeModel(args.projectDir);
+
+    log.message(stepHeading(5));
     const readyAgents = await discoverReadyAgents(args.projectDir);
     const mode = requiredPrompt<SetupMode>(
       await select({
@@ -778,7 +892,7 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
 
     log.message(
       stepHeading(
-        5,
+        6,
         mode === "built-in"
           ? "Launch the detected agent"
           : mode === "own-agent"
@@ -792,6 +906,7 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
         completion.apiKey,
         completion.projectId,
         readyAgents,
+        judge,
       );
       await telemetry.send({
         event: "setup_completed",
@@ -813,7 +928,7 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
       );
       await showOwnAgentPrompt(
         delivery,
-        buildAgentPrompt(args.projectDir, resultFile.path),
+        buildAgentPrompt(args.projectDir, resultFile.path, undefined, judge),
         resultFile.path,
       );
       setupVerified = await finishOwnAgentMode(

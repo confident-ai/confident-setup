@@ -68,6 +68,9 @@ export const promptDeliveryOptions: Array<{
   },
 ];
 
+export const judgeSkipWarning =
+  "No judge model configured, so LLM-judge metrics cannot run. The evaluation will stick to deterministic metrics. Add a provider key to .env.local later and rerun the evaluation to enable them.";
+
 export const fullPermissionWarning = (agentLabel: string): string =>
   `${agentLabel} will be given full permission to edit files and run commands in this project. Review its output and the resulting diff. No commits or pushes are requested.`;
 

@@ -28,7 +28,7 @@ The default services are `https://app.confident-ai.com` and
 
 ## What it does
 
-The wizard runs five labeled steps and shows how many remain.
+The wizard runs six labeled steps and shows the whole route up front.
 
 1. Checks Git and asks explicitly before continuing in a dirty or non-Git
    directory.
@@ -37,13 +37,19 @@ The wizard runs five labeled steps and shows how many remain.
 3. Validates or selects a project and creates a project-scoped API key.
 4. Safely merges `CONFIDENT_API_KEY` into `.env.local`, sets mode `0600`, and
    ensures the file is ignored by Git.
-5. Offers three ways to add the evaluation:
+5. Sets up the judge model that powers LLM metrics. It detects a provider key
+   already present in the environment or `.env.local` the same way DeepEval
+   resolves one, and otherwise offers OpenAI, Anthropic, Gemini, Azure OpenAI,
+   OpenRouter, or a local Ollama model. The key is entered masked and merged
+   into the same `.env.local`. Skipping is allowed and restricts the evaluation
+   to deterministic metrics.
+6. Offers three ways to add the evaluation:
    - a detected coding agent, named in the prompt when Claude Code or Codex is
      installed and authenticated;
    - a prompt you paste into your own coding agent;
    - manual setup using the
      [DeepEval quickstart](https://www.confident-ai.com/docs/llm-evaluation/quickstart).
-6. Validates the agent's structured result and verifies its test run with the
+7. Validates the agent's structured result and verifies its test run with the
    Confident API.
 
 Detected agents first pass executable discovery, authentication, and read-only
@@ -57,6 +63,8 @@ evaluation and credentials in place instead of discarding the run.
 
 - API keys are never included in prompts, telemetry, command arguments, or
   result files.
+- Judge-model keys are typed into a masked prompt, written only to `.env.local`,
+  and named in the agent prompt by environment variable, never by value.
 - Built-in agents receive the key only through their child-process environment.
 - Other setup modes let DeepEval load the key from the ignored `.env.local`
   without exposing its value to the agent prompt.

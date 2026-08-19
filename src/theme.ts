@@ -98,8 +98,9 @@ export const wizardSteps = {
   1: { title: "Sign in", short: "sign in" },
   2: { title: "Choose project", short: "project" },
   3: { title: "Save credentials", short: "credentials" },
-  4: { title: "Choose how to add the evaluation", short: "method" },
-  5: { title: "Run and verify the evaluation", short: "verify" },
+  4: { title: "Set up the judge model", short: "judge model" },
+  5: { title: "Choose how to add the evaluation", short: "method" },
+  6: { title: "Run and verify the evaluation", short: "verify" },
 } as const;
 
 export type WizardStep = keyof typeof wizardSteps;

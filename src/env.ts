@@ -10,32 +10,72 @@ import { basename, join } from "node:path";
 
 import type { CommandRunner } from "./git.js";
 
-const KEY = "CONFIDENT_API_KEY";
+export const CONFIDENT_API_KEY = "CONFIDENT_API_KEY";
 
-export const mergeEnvContent = (content: string, apiKey: string): string => {
+const assignmentPattern = (key: string): RegExp =>
+  new RegExp(`^\\s*(?:export\\s+)?${key}\\s*=`);
+
+/** Replace each key in place when present, otherwise append it. */
+export const mergeEnvContent = (
+  content: string,
+  values: Record<string, string>,
+): string => {
   const newline = content.includes("\r\n") ? "\r\n" : "\n";
-  const lines = content ? content.split(/\r?\n/) : [];
-  const assignment = `${KEY}=${JSON.stringify(apiKey)}`;
-  let replaced = false;
-  const merged = lines.filter((line) => {
-    if (!new RegExp(`^\\s*(?:export\\s+)?${KEY}\\s*=`).test(line)) return true;
-    if (replaced) return false;
-    replaced = true;
-    return true;
-  });
+  let merged = content ? content.split(/\r?\n/) : [];
+  let appended = false;
 
-  if (replaced) {
-    const index = merged.findIndex((line) =>
-      new RegExp(`^\\s*(?:export\\s+)?${KEY}\\s*=`).test(line),
-    );
-    merged[index] = assignment;
-  } else {
-    if (merged.length > 0 && merged.at(-1) !== "") merged.push("");
+  for (const [key, value] of Object.entries(values)) {
+    const matches = assignmentPattern(key);
+    const assignment = `${key}=${JSON.stringify(value)}`;
+    let kept = false;
+    merged = merged.filter((line) => {
+      if (!matches.test(line)) return true;
+      if (kept) return false;
+      kept = true;
+      return true;
+    });
+    if (kept) {
+      merged[merged.findIndex((line) => matches.test(line))] = assignment;
+      continue;
+    }
+    // One blank line separates newly appended keys from existing content.
+    if (!appended && merged.length > 0 && merged.at(-1) !== "") merged.push("");
     merged.push(assignment);
+    appended = true;
   }
 
   while (merged.at(-1) === "") merged.pop();
   return `${merged.join(newline)}${newline}`;
+};
+
+/**
+ * Parse the subset of dotenv syntax this wizard writes and DeepEval reads, so
+ * an existing key can be detected without asking the user to paste it again.
+ */
+export const parseEnvContent = (content: string): Record<string, string> => {
+  const values: Record<string, string> = {};
+  for (const line of content.split(/\r?\n/)) {
+    const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/.exec(
+      line,
+    );
+    if (!match) continue;
+    const raw = match[2]!.trim();
+    const quoted = /^(["'])([\s\S]*)\1$/.exec(raw);
+    values[match[1]!] = quoted
+      ? quoted[1] === '"'
+        ? quoted[2]!.replace(/\\(["\\nrt])/g, (_, escaped: string) =>
+            escaped === "n"
+              ? "\n"
+              : escaped === "r"
+                ? "\r"
+                : escaped === "t"
+                  ? "\t"
+                  : escaped,
+          )
+        : quoted[2]!
+      : raw.replace(/\s+#.*$/, "").trim();
+  }
+  return values;
 };
 
 const readIfPresent = async (path: string): Promise<string> => {
@@ -47,9 +87,15 @@ const readIfPresent = async (path: string): Promise<string> => {
   }
 };
 
-export const writeApiKey = async (
+/** Values already in `.env.local`, so detection sees what DeepEval will load. */
+export const readEnvValues = async (
   cwd: string,
-  apiKey: string,
+): Promise<Record<string, string>> =>
+  parseEnvContent(await readIfPresent(join(cwd, ".env.local")));
+
+export const writeEnvValues = async (
+  cwd: string,
+  values: Record<string, string>,
 ): Promise<string> => {
   const path = join(cwd, ".env.local");
   try {
@@ -61,7 +107,7 @@ export const writeApiKey = async (
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
 
-  const content = mergeEnvContent(await readIfPresent(path), apiKey);
+  const content = mergeEnvContent(await readIfPresent(path), values);
   const temporaryPath = join(
     cwd,
     `.${basename(path)}.${process.pid}.${Date.now()}.tmp`,
