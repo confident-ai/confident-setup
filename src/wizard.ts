@@ -80,7 +80,11 @@ import {
   type SetupMode,
 } from "./modes.js";
 import { buildAgentPrompt } from "./prompt.js";
-import { readSetupResult, type SetupResult } from "./result.js";
+import {
+  readSetupResult,
+  type RejectedSetupResult,
+  type SetupResult,
+} from "./result.js";
 import { classifyErrorCode, SetupTelemetry } from "./telemetry.js";
 import {
   accent,
@@ -555,6 +559,41 @@ const verifyTestRunWithProgress = async (
   }
 };
 
+/**
+ * The suite has already run by the time its result file is read, so a file the
+ * contract rejects is a reporting problem, not a failed evaluation. Name what
+ * to fix and hand back the test run and rerun command anyway.
+ */
+const reportRejectedResult = async (
+  args: CliArgs,
+  rejected: RejectedSetupResult,
+  cloud?: { apiKey: string; projectId: string },
+): Promise<void> => {
+  const { rerunCommand, testRunId, testRunUrl } = rejected.salvaged;
+  log.warn(
+    [
+      "The agent reported a result the setup contract rejects:",
+      ...rejected.issues.map((issue) => `  • ${issue}`),
+      rerunCommand
+        ? `Rerun the evaluation with: ${pc.bold(rerunCommand)}`
+        : "Review the evaluation files the agent wrote before rerunning.",
+    ].join("\n"),
+  );
+  if (!cloud || !testRunId) {
+    if (testRunUrl) note(accent(testRunUrl), "Reported Confident AI test run");
+    return;
+  }
+  const verification = await verifyTestRunWithProgress(
+    args,
+    cloud.apiKey,
+    cloud.projectId,
+    testRunId,
+  );
+  if (verification) {
+    note(accent(verification.testRunUrl), "Verified Confident AI test run");
+  }
+};
+
 const executeAgentWithProgress = async (
   agent: AgentDefinition,
   projectDirectory: string,
@@ -768,7 +807,7 @@ const runBuiltInMode = async (
   judge: JudgeSelection,
   cloud?: { apiKey: string; projectId: string },
   evaluation?: EvaluationTarget,
-): Promise<{ result: SetupResult; verified: boolean }> => {
+): Promise<boolean> => {
   if (!readyAgents.length) {
     throw new Error("No built-in coding agent is available.");
   }
@@ -808,31 +847,10 @@ const runBuiltInMode = async (
     throw new WizardCancelledError("Full-permission execution declined.");
   }
 
-  const paidModelRunConsent = judge.provider
-    ? requiredPrompt<"allow" | "deterministic">(
-        await select({
-          message: `May the agent run ${judge.provider.label} judge metrics that can incur provider usage?`,
-          options: [
-            {
-              label: "Allow model-backed metrics",
-              value: "allow",
-              hint: "Run every metric now, judge included",
-            },
-            {
-              label: "Use deterministic metrics only",
-              value: "deterministic",
-              hint: "Still runs now, without model-provider usage",
-            },
-          ],
-        }),
-      ) === "allow"
-    : false;
-
   const resultFile = await prepareResultFile();
   const prompt = buildAgentPrompt(
     args.projectDir,
     resultFile.path,
-    paidModelRunConsent,
     judge,
     Boolean(cloud),
     evaluation,
@@ -845,7 +863,12 @@ const runBuiltInMode = async (
       cloud?.apiKey,
       resultFile.path,
     );
-    const result = await readSetupResult(resultFile.path, Boolean(cloud));
+    const outcome = await readSetupResult(resultFile.path, Boolean(cloud));
+    if (!outcome.ok) {
+      await reportRejectedResult(args, outcome.rejected, cloud);
+      return false;
+    }
+    const { result } = outcome;
     const verification =
       cloud && result.status === "completed" && result.testRunId
         ? await verifyTestRunWithProgress(
@@ -857,10 +880,7 @@ const runBuiltInMode = async (
         : undefined;
     if (verification) result.testRunUrl = verification.testRunUrl;
     note(summarizeResult(result, result.testRunUrl), "Evaluation setup result");
-    return {
-      result,
-      verified: cloud ? Boolean(verification) : result.status === "completed",
-    };
+    return cloud ? Boolean(verification) : result.status === "completed";
   } finally {
     await rm(resultFile.directory, { recursive: true, force: true });
   }
@@ -895,7 +915,12 @@ const finishOwnAgentMode = async (
   }
 
   try {
-    const result = await readSetupResult(resultFile.path, Boolean(cloud));
+    const outcome = await readSetupResult(resultFile.path, Boolean(cloud));
+    if (!outcome.ok) {
+      await reportRejectedResult(args, outcome.rejected, cloud);
+      return false;
+    }
+    const { result } = outcome;
     const verification =
       cloud && result.testRunId
         ? await verifyTestRunWithProgress(
@@ -1133,7 +1158,7 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
       ),
     );
     if (mode === "built-in") {
-      const { verified } = await runBuiltInMode(
+      const verified = await runBuiltInMode(
         args,
         readyAgents,
         judge,
@@ -1163,7 +1188,6 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
         buildAgentPrompt(
           args.projectDir,
           resultFile.path,
-          undefined,
           judge,
           useConfidentAi,
           evaluation,

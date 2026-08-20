@@ -78,9 +78,8 @@ model, adds the evaluation, and runs it locally.
    chain, Gemini on Vertex AI needs no key, and LiteLLM reuses an upstream one.
    Both SDKs read the same `USE_*` flags out of the same `.env.local`, so this
    step is language-independent, with LiteLLM the one provider the TypeScript
-   SDK cannot serve. Skipping is allowed and restricts the evaluation to
-   judge-free metrics, which most of a suite is anyway: five metrics, at least
-   three of them scored by comparison rather than by a model.
+   SDK cannot serve. Skipping is allowed, and restricts the evaluation to the
+   metrics that score by comparison rather than by a model.
 5. Offers three ways to add the evaluation:
    - a detected coding agent, named in the prompt when Claude Code, Codex, or
      Cursor CLI is installed and authenticated;
@@ -91,11 +90,11 @@ model, adds the evaluation, and runs it locally.
      local-only run.
 6. Runs the evaluation, validates the agent's structured result, and verifies
    its test run with the Confident API. A component-level result that reports no
-   span level is rejected, since a suite with no component metrics is not the
-   evaluation that was asked for, and a black-box result cannot claim spans it
-   had no way to produce. Declining model-backed judge metrics still runs the
-   judge-free ones rather than leaving the evaluation unexecuted, and the
-   evaluation runs exactly once, ending in a short report of what it found.
+   span or no trace level is rejected, since that shape scores each component and
+   the run as a whole, and a black-box result cannot claim spans it had no way to
+   produce. Configuring a judge is the agreement to use it, so the run is not
+   gated behind a second question about provider usage; the evaluation runs
+   exactly once, ending in a short report of what it found.
 
 Detected agents first pass executable discovery, authentication, and read-only
 smoke checks (Claude plan mode, the Codex read-only sandbox, Cursor ask mode).

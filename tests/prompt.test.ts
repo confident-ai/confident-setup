@@ -43,29 +43,34 @@ describe("canonical prompt", () => {
 
 describe("agent prompt", () => {
   it("names the judge provider and its variables, never a value", () => {
-    const prompt = buildAgentPrompt("/tmp/app", "/tmp/result.json", true, {
+    const prompt = buildAgentPrompt("/tmp/app", "/tmp/result.json", {
       provider: judgeProvider,
     });
     expect(prompt).toContain("Judge model: Anthropic");
     expect(prompt).toContain("ANTHROPIC_API_KEY, ANTHROPIC_MODEL_NAME");
     expect(prompt).toContain("never open or echo those values");
-    expect(prompt).toContain(
-      "User consent for model-backed evaluation runs: granted",
-    );
   });
 
-  it("tells the agent to stay deterministic without a judge", () => {
-    const prompt = buildAgentPrompt("/tmp/app", "/tmp/result.json", false);
+  it("tells the agent to stay judge-free without a judge", () => {
+    const prompt = buildAgentPrompt("/tmp/app", "/tmp/result.json");
     expect(prompt).toContain("Judge model: none configured");
     expect(prompt).toContain("do not add LLM-judge metrics");
     expect(prompt).toContain("Cloud: Confident AI");
+  });
+
+  /** Nothing asks the user to hold judge metrics back, so nothing says it did. */
+  it("never claims a consent decision the wizard no longer collects", () => {
+    expect(
+      buildAgentPrompt("/tmp/app", "/tmp/result.json", {
+        provider: judgeProvider,
+      }),
+    ).not.toContain("consent");
   });
 
   it("names the SDK the preflight resolved", () => {
     const typescript = buildAgentPrompt(
       "/tmp/app",
       "/tmp/result.json",
-      false,
       {},
       true,
       {
@@ -76,32 +81,18 @@ describe("agent prompt", () => {
     expect(typescript).toContain("SDK: the DeepEval TypeScript SDK");
     expect(typescript).toContain("Instrument and evaluate in that language");
 
-    const python = buildAgentPrompt(
-      "/tmp/app",
-      "/tmp/result.json",
-      false,
-      {},
-      true,
-      {
-        sdk: "python",
-        shape: "component-level",
-      },
-    );
+    const python = buildAgentPrompt("/tmp/app", "/tmp/result.json", {}, true, {
+      sdk: "python",
+      shape: "component-level",
+    });
     expect(python).toContain("SDK: the DeepEval Python SDK");
   });
 
   it("sends an uninstrumentable project down the black-box path", () => {
-    const prompt = buildAgentPrompt(
-      "/tmp/app",
-      "/tmp/result.json",
-      false,
-      {},
-      true,
-      {
-        sdk: "python",
-        shape: "black-box",
-      },
-    );
+    const prompt = buildAgentPrompt("/tmp/app", "/tmp/result.json", {}, true, {
+      sdk: "python",
+      shape: "black-box",
+    });
     expect(prompt).toContain("cannot be instrumented");
     expect(prompt).toContain("report the shape as black-box");
     expect(prompt).not.toContain("Instrument and evaluate in that language");
@@ -114,13 +105,7 @@ describe("agent prompt", () => {
   });
 
   it("keeps DeepEval local when Confident AI is declined", () => {
-    const prompt = buildAgentPrompt(
-      "/tmp/app",
-      "/tmp/result.json",
-      false,
-      {},
-      false,
-    );
+    const prompt = buildAgentPrompt("/tmp/app", "/tmp/result.json", {}, false);
     expect(prompt).toContain("Cloud: local only");
     expect(prompt).not.toContain("A completed result requires testRunId");
   });
