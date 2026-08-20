@@ -13,7 +13,7 @@ const authSessionSchema = z.object({
   expiresIn: z.number().positive(),
   interval: z.number().positive(),
   protocolVersion: z.number(),
-  eventToken: z.string().optional(),
+  telemetryToken: z.string().optional(),
 });
 
 const authTokenSchema = z.discriminatedUnion("status", [
@@ -83,7 +83,6 @@ const completionSchema = z.object({
 
 export type AuthSession = z.infer<typeof authSessionSchema>;
 export interface AuthSessionContext {
-  purpose: "evaluation_setup";
   source: string;
   organizationId?: string;
   projectId?: string;

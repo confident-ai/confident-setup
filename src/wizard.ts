@@ -879,12 +879,11 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
       log.message(heading(1));
       const api = new ConfidentApi(args.apiUrl);
       const session = await api.createAuthSession({
-        purpose: "evaluation_setup",
         source: args.from,
         ...(args.orgId ? { organizationId: args.orgId } : {}),
         ...(args.projId ? { projectId: args.projId } : {}),
       });
-      telemetry.setEventToken(session.eventToken);
+      telemetry.setTelemetryToken(session.telemetryToken);
       await telemetry.send({
         event: "wizard_started",
         step: "bootstrap",

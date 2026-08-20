@@ -61,13 +61,13 @@ describe("telemetry redaction", () => {
         .mockRejectedValue(new Error("offline")),
       disabled: false,
     });
-    telemetry.setEventToken("event-token");
+    telemetry.setTelemetryToken("telemetry-token");
     await expect(
       telemetry.send({ event: "setup_completed" }),
     ).resolves.toBeUndefined();
   });
 
-  it("authenticates event delivery with the pairing event token", async () => {
+  it("authenticates event delivery with the pairing telemetry token", async () => {
     const fetch = vi
       .fn<typeof globalThis.fetch>()
       .mockResolvedValue(new Response(null, { status: 202 }));
@@ -75,7 +75,7 @@ describe("telemetry redaction", () => {
       fetch,
       disabled: false,
     });
-    telemetry.setEventToken("event-token");
+    telemetry.setTelemetryToken("telemetry-token");
 
     await telemetry.send({
       event: "setup_completed",
@@ -84,10 +84,10 @@ describe("telemetry redaction", () => {
     });
 
     expect(fetch).toHaveBeenCalledWith(
-      "https://api.example/cli/setup/events",
+      "https://api.example/cli/analytics",
       expect.objectContaining({
         headers: expect.objectContaining({
-          authorization: "Bearer event-token",
+          authorization: "Bearer telemetry-token",
         }),
       }),
     );

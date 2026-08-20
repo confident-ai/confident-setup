@@ -23,26 +23,25 @@ describe("ConfidentApi auth polling", () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
       jsonResponse({
         success: true,
-        data: { ...session, eventToken: "event-token" },
+        data: { ...session, telemetryToken: "telemetry-token" },
       }),
     );
     const api = new ConfidentApi("https://api.example", { fetch });
 
     await expect(
       api.createAuthSession({
-        purpose: "evaluation_setup",
         source: "in_app_setup",
         organizationId: "org",
         projectId: "project",
       }),
-    ).resolves.toMatchObject({ eventToken: "event-token" });
+    ).resolves.toMatchObject({ telemetryToken: "telemetry-token" });
 
+    // The setup context is a strict contract: an extra key fails the request.
     expect(fetch).toHaveBeenCalledWith(
       "https://api.example/cli/auth/sessions",
       expect.objectContaining({
         body: JSON.stringify({
           context: {
-            purpose: "evaluation_setup",
             source: "in_app_setup",
             organizationId: "org",
             projectId: "project",

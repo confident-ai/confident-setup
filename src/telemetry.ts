@@ -78,7 +78,7 @@ export class SetupTelemetry {
   readonly #url: string;
   readonly #fetch: typeof globalThis.fetch;
   readonly #disabled: boolean;
-  #eventToken: string | undefined;
+  #telemetryToken: string | undefined;
 
   constructor(
     apiUrl: string,
@@ -87,23 +87,23 @@ export class SetupTelemetry {
       disabled?: boolean;
     } = {},
   ) {
-    this.#url = `${apiUrl.replace(/\/+$/, "")}/cli/setup/events`;
+    this.#url = `${apiUrl.replace(/\/+$/, "")}/cli/analytics`;
     this.#fetch = options.fetch ?? globalThis.fetch;
     this.#disabled =
       options.disabled ?? process.env.CONFIDENT_TELEMETRY_DISABLED === "1";
   }
 
-  setEventToken(eventToken: string | undefined): void {
-    this.#eventToken = eventToken;
+  setTelemetryToken(telemetryToken: string | undefined): void {
+    this.#telemetryToken = telemetryToken;
   }
 
   async send(event: TelemetryEvent): Promise<void> {
-    if (this.#disabled || !this.#eventToken) return;
+    if (this.#disabled || !this.#telemetryToken) return;
     try {
       await this.#fetch(this.#url, {
         method: "POST",
         headers: {
-          authorization: `Bearer ${this.#eventToken}`,
+          authorization: `Bearer ${this.#telemetryToken}`,
           "content-type": "application/json",
         },
         body: JSON.stringify(redactTelemetry(event)),
