@@ -27,7 +27,21 @@ execFileSync(
     stdio: "inherit",
   },
 );
-if (process.platform === "darwin") {
+/**
+ * `postject` cannot inject into a universal binary, which is what nodejs.org
+ * installs on macOS, so that one is thinned to the host architecture. A runner
+ * whose Node is already single-architecture, as GitHub's tool cache ships it,
+ * has nothing to thin and `lipo -thin` would reject it.
+ */
+const machOArchitectures = (binary) =>
+  execFileSync("lipo", ["-archs", binary], { encoding: "utf8" })
+    .trim()
+    .split(/\s+/);
+
+if (
+  process.platform === "darwin" &&
+  machOArchitectures(process.execPath).length > 1
+) {
   execFileSync(
     "lipo",
     [
