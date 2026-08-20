@@ -2,7 +2,8 @@
 
 Interactive setup for a focused, rerunnable Confident AI evaluation powered by
 DeepEval. The wizard pairs through the browser, creates a project API key, and
-helps a coding agent build and run a multi-level evaluation.
+helps a coding agent build and run a component-level evaluation, in Python or
+TypeScript, whichever the project is written in.
 
 ## Run
 
@@ -42,14 +43,23 @@ The default services are `https://app.confident-ai.com` and
 
 The wizard runs six labeled steps and shows the whole route up front. Before
 step one it checks Git and asks explicitly before continuing in a dirty or
-non-Git directory, then looks for DeepEval itself. It searches the active
-virtual environment, the project's Poetry or uv environment, its `.venv`, and
-the `python3` on `PATH`, in that order, and offers to install DeepEval where the
-evaluation will run when nothing has it. The exact command is shown first and
-requires confirmation, a system interpreter is never an install target, and
-declining only warns. A DeepEval user who declines Confident AI skips the first
-three steps, then still sets the judge model, adds the evaluation, and runs it
-locally.
+non-Git directory, then looks for DeepEval itself. DeepEval ships one SDK per
+language, so the search covers both: for Python, the active virtual environment,
+the project's Poetry or uv environment, its `.venv`, and the `python3` on
+`PATH`, in that order; for TypeScript, the package the project's own manager
+would have installed. When nothing has it, the wizard offers to install DeepEval
+where the evaluation will run, using that project's package manager — npm, pnpm,
+Yarn, or Bun, taken from the `packageManager` field or the lockfile. A
+repository holding both languages is asked which one to evaluate, since only its
+owner knows. The exact command is shown first and requires confirmation, a
+system interpreter is never an install target, and declining only warns. The
+answer also tells the agent which SDK to instrument with. A project in neither
+language is told so up front: DeepEval cannot instrument it, so the evaluation
+becomes a standalone Python script that calls the application the way its users
+do and scores test cases built from goldens, and DeepEval is installed as a
+harness rather than as one of the project's own dependencies. A DeepEval user who
+declines Confident AI skips the first three steps, then still sets the judge
+model, adds the evaluation, and runs it locally.
 
 1. Opens browser device pairing and retrieves onboarding state from Confident
    AI.
@@ -66,7 +76,11 @@ locally.
    provider flag and only the settings DeepEval has no default for. Credentials
    DeepEval can infer are never demanded: Bedrock can use your AWS credential
    chain, Gemini on Vertex AI needs no key, and LiteLLM reuses an upstream one.
-   Skipping is allowed and restricts the evaluation to deterministic metrics.
+   Both SDKs read the same `USE_*` flags out of the same `.env.local`, so this
+   step is language-independent, with LiteLLM the one provider the TypeScript
+   SDK cannot serve. Skipping is allowed and restricts the evaluation to
+   judge-free metrics, which most of a suite is anyway: five metrics, at least
+   three of them scored by comparison rather than by a model.
 5. Offers three ways to add the evaluation:
    - a detected coding agent, named in the prompt when Claude Code, Codex, or
      Cursor CLI is installed and authenticated;
@@ -76,9 +90,12 @@ locally.
      or the [DeepEval docs](https://deepeval.com/docs/getting-started) for a
      local-only run.
 6. Runs the evaluation, validates the agent's structured result, and verifies
-   its test run with the Confident API. Declining model-backed judge metrics
-   still runs the deterministic ones rather than leaving the evaluation
-   unexecuted.
+   its test run with the Confident API. A component-level result that reports no
+   span level is rejected, since a suite with no component metrics is not the
+   evaluation that was asked for, and a black-box result cannot claim spans it
+   had no way to produce. Declining model-backed judge metrics still runs the
+   judge-free ones rather than leaving the evaluation unexecuted, and the
+   evaluation runs exactly once, ending in a short report of what it found.
 
 Detected agents first pass executable discovery, authentication, and read-only
 smoke checks (Claude plan mode, the Codex read-only sandbox, Cursor ask mode).

@@ -35,8 +35,11 @@ import { requiresConfidentOptIn, type CliArgs } from "./args.js";
 import {
   DEEPEVAL_PACKAGE,
   describeCommands,
+  evaluationTarget,
   inspectDeepEval,
   installDeepEval,
+  type Ecosystem,
+  type EvaluationTarget,
 } from "./deepeval.js";
 import {
   CONFIDENT_API_KEY,
@@ -185,52 +188,92 @@ const confirmUnsafeGitState = async (
   }
 };
 
+const ECOSYSTEM_LABELS: Record<Ecosystem, string> = {
+  python: "Python",
+  node: "TypeScript",
+};
+
 /**
  * A missing SDK is cheap to fix here and expensive later: without it the agent
  * improvises an install mid-run, or the evaluation fails after a key already
- * exists on disk.
+ * exists on disk. The answer also tells the agent which SDK to instrument
+ * with, which one prompt cannot infer as reliably as the install can.
  */
-const ensureDeepEval = async (projectDirectory: string): Promise<void> => {
+const ensureDeepEval = async (
+  projectDirectory: string,
+): Promise<EvaluationTarget | undefined> => {
   const checking = spinner();
   checking.start("Looking for DeepEval…");
-  const { installed, target } = await inspectDeepEval(projectDirectory);
+  const { installed, targets, languages } =
+    await inspectDeepEval(projectDirectory);
+  /**
+   * An application in neither language cannot be instrumented, so the wizard
+   * says so once here rather than letting the agent discover it mid-run.
+   */
+  if (languages.length === 0) {
+    log.warn(
+      [
+        "This project is not written in Python or TypeScript, the two languages DeepEval has an SDK for.",
+        "The evaluation will call your application from the outside and score its answers, so it grades the whole application rather than its components.",
+      ].join("\n"),
+    );
+  }
   if (installed) {
     checking.stop(`DeepEval found in ${accent(installed.label)}.`);
-    return;
+    return evaluationTarget(languages, installed.ecosystem);
   }
   checking.stop("DeepEval is not installed yet.");
 
-  const proceed = requiredPrompt<"install" | "skip">(
+  const [only] = targets;
+  const answer = requiredPrompt<Ecosystem | "skip">(
     await select({
       message: [
         `${alert(pc.bold("DeepEval is not installed."))} The evaluation cannot run without it.`,
         "",
-        `Install it into ${accent(target.label)} with:`,
-        "",
-        describeCommands(target.install),
-        "",
-        pc.bold("Install DeepEval now?"),
+        ...targets.flatMap((target) => [
+          `Install it into ${accent(target.label)} with:`,
+          "",
+          describeCommands(target.install),
+          "",
+        ]),
+        pc.bold(
+          targets.length > 1
+            ? "Which one should the evaluation use?"
+            : "Install DeepEval now?",
+        ),
       ].join("\n"),
       options: [
-        {
-          label: "Yes, install DeepEval",
-          value: "install",
-          hint: "Runs the command above in this project",
-        },
+        ...targets.map((target) => ({
+          label:
+            targets.length > 1
+              ? `Yes, the ${ECOSYSTEM_LABELS[target.ecosystem]} SDK`
+              : "Yes, install DeepEval",
+          value: target.ecosystem,
+          hint:
+            targets.length > 1
+              ? `Installs into ${target.label}`
+              : "Runs the command above in this project",
+        })),
         {
           label: "No, I will install it myself",
-          value: "skip",
+          value: "skip" as const,
           hint: "Setup continues, but the evaluation may not run",
         },
       ],
     }),
   );
-  if (proceed === "skip") {
+  if (answer === "skip") {
     log.warn(
       `Install ${DEEPEVAL_PACKAGE} before the evaluation runs, or the run will fail.`,
     );
-    return;
+    /** One target leaves no ambiguity about the language, a declined choice does. */
+    return targets.length === 1
+      ? evaluationTarget(languages, only?.ecosystem)
+      : undefined;
   }
+
+  const target = targets.find(({ ecosystem }) => ecosystem === answer) ?? only;
+  if (!target) return undefined;
 
   const installing = spinner();
   installing.start(`Installing DeepEval into ${target.label}…`);
@@ -246,6 +289,7 @@ const ensureDeepEval = async (projectDirectory: string): Promise<void> => {
       ].join("\n"),
     );
   }
+  return evaluationTarget(languages, target.ecosystem);
 };
 
 const confirmConfidentAi = async (): Promise<boolean> => {
@@ -448,6 +492,7 @@ const summarizeResult = (result: SetupResult, testRunUrl?: string): string => {
         : alert(result.status)
     }`,
     `SDKs: ${result.sdks.join(", ")}`,
+    `Shape: ${result.shape}`,
     `Levels: ${result.levels.join(", ")}`,
     `Dataset: ${result.datasetSource}`,
     `Metrics: ${result.metrics.join(", ") || "none"}`,
@@ -722,6 +767,7 @@ const runBuiltInMode = async (
   readyAgents: AgentDefinition[],
   judge: JudgeSelection,
   cloud?: { apiKey: string; projectId: string },
+  evaluation?: EvaluationTarget,
 ): Promise<{ result: SetupResult; verified: boolean }> => {
   if (!readyAgents.length) {
     throw new Error("No built-in coding agent is available.");
@@ -789,6 +835,7 @@ const runBuiltInMode = async (
     paidModelRunConsent,
     judge,
     Boolean(cloud),
+    evaluation,
   );
   try {
     await executeAgentWithProgress(
@@ -942,7 +989,7 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
     if (!gitStatus.isRepository || gitStatus.dirty) {
       await confirmUnsafeGitState(gitStatus);
     }
-    await ensureDeepEval(args.projectDir);
+    const evaluation = await ensureDeepEval(args.projectDir);
 
     let cloud: { apiKey: string; projectId: string } | undefined;
     if (useConfidentAi) {
@@ -1091,6 +1138,7 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
         readyAgents,
         judge,
         cloud,
+        evaluation,
       );
       await telemetry.send({
         event: "setup_completed",
@@ -1118,6 +1166,7 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
           undefined,
           judge,
           useConfidentAi,
+          evaluation,
         ),
         resultFile.path,
         useConfidentAi,
