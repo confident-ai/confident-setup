@@ -42,7 +42,12 @@ The default services are `https://app.confident-ai.com` and
 
 The wizard runs six labeled steps and shows the whole route up front. Before
 step one it checks Git and asks explicitly before continuing in a dirty or
-non-Git directory. A DeepEval user who declines Confident AI skips the first
+non-Git directory, then looks for DeepEval itself. It searches the active
+virtual environment, the project's Poetry or uv environment, its `.venv`, and
+the `python3` on `PATH`, in that order, and offers to install DeepEval where the
+evaluation will run when nothing has it. The exact command is shown first and
+requires confirmation, a system interpreter is never an install target, and
+declining only warns. A DeepEval user who declines Confident AI skips the first
 three steps, then still sets the judge model, adds the evaluation, and runs it
 locally.
 

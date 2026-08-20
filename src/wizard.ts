@@ -33,6 +33,12 @@ import type {
 import { ConfidentApi } from "./api.js";
 import { requiresConfidentOptIn, type CliArgs } from "./args.js";
 import {
+  DEEPEVAL_PACKAGE,
+  describeCommands,
+  inspectDeepEval,
+  installDeepEval,
+} from "./deepeval.js";
+import {
   CONFIDENT_API_KEY,
   ensureEnvLocalIgnored,
   readEnvValues,
@@ -176,6 +182,69 @@ const confirmUnsafeGitState = async (
   if (proceed === "exit") {
     showCancellation("Setup cancelled. No changes were made by the wizard.");
     throw new WizardCancelledError("Git preflight declined.");
+  }
+};
+
+/**
+ * A missing SDK is cheap to fix here and expensive later: without it the agent
+ * improvises an install mid-run, or the evaluation fails after a key already
+ * exists on disk.
+ */
+const ensureDeepEval = async (projectDirectory: string): Promise<void> => {
+  const checking = spinner();
+  checking.start("Looking for DeepEval…");
+  const { installed, target } = await inspectDeepEval(projectDirectory);
+  if (installed) {
+    checking.stop(`DeepEval found in ${accent(installed.label)}.`);
+    return;
+  }
+  checking.stop("DeepEval is not installed yet.");
+
+  const proceed = requiredPrompt<"install" | "skip">(
+    await select({
+      message: [
+        `${alert(pc.bold("DeepEval is not installed."))} The evaluation cannot run without it.`,
+        "",
+        `Install it into ${accent(target.label)} with:`,
+        "",
+        describeCommands(target.install),
+        "",
+        pc.bold("Install DeepEval now?"),
+      ].join("\n"),
+      options: [
+        {
+          label: "Yes, install DeepEval",
+          value: "install",
+          hint: "Runs the command above in this project",
+        },
+        {
+          label: "No, I will install it myself",
+          value: "skip",
+          hint: "Setup continues, but the evaluation may not run",
+        },
+      ],
+    }),
+  );
+  if (proceed === "skip") {
+    log.warn(
+      `Install ${DEEPEVAL_PACKAGE} before the evaluation runs, or the run will fail.`,
+    );
+    return;
+  }
+
+  const installing = spinner();
+  installing.start(`Installing DeepEval into ${target.label}…`);
+  try {
+    await installDeepEval(target, projectDirectory);
+    installing.stop(`DeepEval installed into ${accent(target.label)}.`);
+  } catch (error) {
+    installing.error("Could not install DeepEval.");
+    log.warn(
+      [
+        error instanceof Error ? error.message : String(error),
+        `Install ${DEEPEVAL_PACKAGE} yourself before the evaluation runs.`,
+      ].join("\n"),
+    );
   }
 };
 
@@ -873,6 +942,7 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
     if (!gitStatus.isRepository || gitStatus.dirty) {
       await confirmUnsafeGitState(gitStatus);
     }
+    await ensureDeepEval(args.projectDir);
 
     let cloud: { apiKey: string; projectId: string } | undefined;
     if (useConfidentAi) {

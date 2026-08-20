@@ -25,8 +25,11 @@ integration.
   already gathered by the wizard, honor it without asking again. Consent
   recorded as not granted withholds the model-backed metrics, never the run
   itself.
-- Do not add tracing unless the evaluation genuinely needs application spans,
-  traces, or threads. Do not turn this task into observability setup.
+- Instrument the application only as far as the evaluation needs it. Traced
+  evaluations and span-level metrics require spans, so a native DeepEval
+  integration, or `@observe` on the components being evaluated, is in scope.
+  Production monitoring, dashboards, and trace tagging for observability are
+  not.
 - Make focused changes only. Do not commit or push.
 
 ## Build the evaluation
@@ -34,33 +37,65 @@ integration.
 Create and run a rerunnable multi-level evaluation using the current DeepEval
 Python SDK and/or DeepEval TypeScript SDK, whichever fits this repository.
 
-1. Prefer an existing representative dataset. Otherwise create a small,
-   deterministic, source-controlled fixture from existing non-sensitive
-   examples. Do not fabricate generated examples without asking first.
-2. Map every dataset row to fields compatible with the selected DeepEval test
-   case type. Typical single-turn fields are `input`, `actual_output`,
-   `expected_output`, `context`, `retrieval_context`, `tools_called`, and
-   `expected_tools`; use only fields supported by the installed SDK. For
-   conversations, preserve ordered turns and the SDK's supported scenario,
-   expected-outcome, and user-description fields.
-3. Cover the test-case level. Add component/span-level evaluation only when the
-   app has meaningful components such as retrieval, tool use, routing, or
-   generation. Choose **one to three meaningful span metrics maximum**.
-4. Add trace-level metrics when the end-to-end path needs a distinct judgment.
-   Add thread/conversational metrics only when multi-turn behavior exists.
-5. Avoid redundant metrics across levels. Each metric must test a distinct
-   failure mode and have the fields it requires. Prefer deterministic metrics
-   where they answer the question; ask before any paid model-judge run.
-6. Add one documented command that reruns the same evaluation. If Confident AI
-   is configured, that command should also upload a Confident AI test run.
-   Execute safe local checks, then run the evaluation: every metric when
-   model-backed runs are consented to, otherwise the deterministic metrics
-   alone. Finishing without running it is not an acceptable outcome.
-7. If the repository already has evaluation infrastructure, extend it instead
-   of creating a parallel framework.
+1. Confirm DeepEval is installed in the environment that will run the
+   evaluation, and install it with the project's own package manager and
+   virtual environment if it is missing. The Python SDK needs Python 3.9 or
+   newer. Never run `deepeval login`; credentials are already configured. If
+   DeepEval cannot be installed, stop and report `failed` with the reason.
+2. Prefer an existing representative dataset, including one already stored on
+   Confident AI. Otherwise generate goldens with `deepeval generate` rather
+   than writing them by hand, honoring the consent rules above. If generation
+   is declined, build a small deterministic, source-controlled fixture from
+   existing non-sensitive examples.
+3. Default to a traced single-turn suite whenever the application can produce
+   spans: prefer a native DeepEval integration, fall back to `@observe` at the
+   application entry point, run each golden through the traced application, and
+   assert with the golden itself rather than a hand-built test case. Construct
+   `LLMTestCase` values only in an explicit no-tracing suite, when no tracing
+   path is viable, mapping each row to fields the installed SDK supports.
+4. Put the suite in the project's existing evaluation directory, or in
+   `tests/evals/` as `test_<app>.py`, `metrics.py`, and `.dataset.json`. Keep
+   metric instances in the metrics module and import explicit lists instead of
+   constructing metrics inline.
+5. Keep the first suite to three to five end-to-end metrics, each testing a
+   distinct failure mode, reusing the project's existing metrics and thresholds
+   when it has them. Single-turn suites take single-turn metrics and multi-turn
+   suites take conversational ones; never mix the two. Include only the
+   reference fields the dataset actually has, since a metric needing
+   `expected_output`, `retrieval_context`, or `expected_tools` fails at runtime
+   without them. Prefer deterministic metrics where they answer the question,
+   and express a product-specific criterion as a custom LLM-judge metric.
+6. Add component metrics only where a span-level diagnosis is genuinely useful,
+   and keep them inside the same traced suite rather than a separate component
+   test file: attach them at the component boundary, using the SDK's staging
+   helper for spans an integration creates or the metrics argument of
+   `@observe` for spans you instrument, and leave the end-to-end assertion at
+   the trace level. Name each list after the component it evaluates, never one
+   shared list, and choose **one to three meaningful span metrics maximum**.
+7. Add thread/conversational coverage only when multi-turn behavior exists,
+   using simulated conversational test cases and conversational metrics.
+   Record in the result which levels the suite actually evaluates.
+8. Add one documented command that reruns the same evaluation, using
+   `deepeval test run <path>` rather than a raw `pytest` invocation for Python
+   suites. On a non-trivial dataset, a run identifier and DeepEval's own
+   process-count, error-tolerance, and missing-parameter flags are worth
+   setting. If Confident AI is configured, that command should also upload a
+   Confident AI test run. Execute the evaluation exactly once through that
+   command: every metric when model-backed runs are consented to, otherwise the
+   deterministic metrics alone. Finishing without running it is not an
+   acceptable outcome.
+9. Rerun only to repair a failure, and only after fixing its cause. Never
+   execute the evaluation, a slice of it, or an ad-hoc copy of it to explore how
+   the SDK behaves: judge metrics spend money on every call, and each run that
+   reaches Confident AI creates another test run, so the reported `testRunId`
+   must come from the single run the documented command produced.
+10. If the repository already has evaluation infrastructure, extend it instead
+    of creating a parallel framework.
 
-Use current installed APIs and inspect package documentation or type definitions
-when uncertain. Do not invent SDK methods.
+When an API is unclear, read the installed package's documentation, type
+definitions, or source. Do not invent SDK methods, and do not learn one by
+calling it: read a metric's or helper's signature rather than constructing and
+running it in a scratch script.
 
 ## Required result
 
