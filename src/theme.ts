@@ -69,12 +69,39 @@ const WORDMARK_MARK = [
   "|__/  |__/|______/",
 ] as const;
 
+/**
+ * Same font, "DeepEval", for a run that declines Confident AI. The descender of
+ * its `p` costs three more rows than the Confident AI lockup.
+ */
+const DEEPEVAL_WORDMARK = [
+  " /$$$$$$$                                /$$$$$$$$                  /$$",
+  "| $$__  $$                              | $$_____/                 | $$",
+  "| $$  \\ $$  /$$$$$$   /$$$$$$   /$$$$$$ | $$    /$$    /$$ /$$$$$$ | $$",
+  "| $$  | $$ /$$__  $$ /$$__  $$ /$$__  $$| $$$$$|  $$  /$$/|____  $$| $$",
+  "| $$  | $$| $$$$$$$$| $$$$$$$$| $$  \\ $$| $$__/ \\  $$/$$/  /$$$$$$$| $$",
+  "| $$  | $$| $$_____/| $$_____/| $$  | $$| $$     \\  $$$/  /$$__  $$| $$",
+  "| $$$$$$$/|  $$$$$$$|  $$$$$$$| $$$$$$$/| $$$$$$$$\\  $/  |  $$$$$$$| $$",
+  "|_______/  \\_______/ \\_______/| $$____/ |________/ \\_/    \\_______/|__/",
+  "                              | $$",
+  "                              | $$",
+  "                              |__/",
+] as const;
+
+interface WordmarkTier {
+  columns: number;
+  rows: readonly string[];
+}
+
 /** Widest art first; the banner picks the first tier the terminal can hold. */
-const WORDMARK_TIERS = [
+const CONFIDENT_TIERS: readonly WordmarkTier[] = [
   { columns: 108, rows: WORDMARK_FULL },
   { columns: 84, rows: WORDMARK_NAME },
   { columns: 18, rows: WORDMARK_MARK },
-] as const;
+];
+
+const DEEPEVAL_TIERS: readonly WordmarkTier[] = [
+  { columns: 71, rows: DEEPEVAL_WORDMARK },
+];
 
 export type WizardStepInfo = { title: string; short: string };
 
@@ -123,22 +150,26 @@ export const welcomeMessage = (useConfidentAi = true): string =>
     ? `🥳 Welcome to ${brand("Confident AI")}, the evals cloud platform 🏡❤️`
     : `🥳 Welcome to ${accent("DeepEval")} evaluation setup`;
 
-/** The `deepeval login` banner, stepped down to fit the terminal width. */
+/**
+ * The `deepeval login` banner, stepped down to fit the terminal width, naming
+ * whichever product the run is actually setting up. Violet stays with the
+ * Confident AI lockup, so DeepEval's takes the accent.
+ */
 export const banner = (
   columns: number = process.stdout.columns ?? 80,
   useConfidentAi = true,
 ): string => {
-  const steps = wizardStepsFor(useConfidentAi);
-  const lines = [welcomeMessage(useConfidentAi), ""];
-  if (useConfidentAi) {
-    const tier = WORDMARK_TIERS.find(
-      (candidate) => columns >= candidate.columns,
-    );
-    const wordmark = tier
-      ? tier.rows.map((row) => brand(row))
-      : [brand(pc.bold("CONFIDENT AI"))];
-    lines.push(...wordmark, "");
-  }
-  lines.push(muted(stepRoadmap(steps)));
-  return lines.join("\n");
+  const [tiers, paint, plainMark] = useConfidentAi
+    ? ([CONFIDENT_TIERS, brand, "CONFIDENT AI"] as const)
+    : ([DEEPEVAL_TIERS, accent, "DEEPEVAL"] as const);
+  const tier = tiers.find((candidate) => columns >= candidate.columns);
+  return [
+    welcomeMessage(useConfidentAi),
+    "",
+    ...(tier
+      ? tier.rows.map((row) => paint(row))
+      : [paint(pc.bold(plainMark))]),
+    "",
+    muted(stepRoadmap(wizardStepsFor(useConfidentAi))),
+  ].join("\n");
 };

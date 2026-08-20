@@ -39,7 +39,16 @@ npm run build
   flags are third-party contracts: check them against the vendor's current CLI
   reference rather than from memory, since a wrong flag lands on a real project.
 - `prompts/evaluation.md` is the canonical agent prompt. Avoid duplicate prompt
-  copies.
+  copies. It mirrors DeepEval's own skills, so keep it aligned with
+  `skills/deepeval` and `skills/deepeval-tracing` in the DeepEval repository:
+  traced single-turn evaluation is the default shape, component metrics attach
+  to the spans they judge inside that same suite, and the evaluation runs
+  exactly once, since exploratory runs spend judge money and each one that
+  reaches Confident AI creates another test run.
+- `src/deepeval.ts` decides where DeepEval lives before setup starts. Its
+  install commands are third-party contracts, so check them against Poetry, uv,
+  and pip rather than from memory. Never install into an interpreter the machine
+  manages: prefer an existing environment, otherwise a new project `.venv`.
 - `examples/` is git-ignored scratch space for manual end-to-end runs, never
   part of the published package. A sandbox target app there keeps its support
   history unlabeled on purpose: curating evaluation datasets is the work being

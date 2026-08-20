@@ -19,10 +19,19 @@ describe("welcome banner", () => {
       "  /$$$$$$                       /$$$$$$  /$$       /$$                       /$$            /$$$$$$  /$$$$$$",
     );
     expect(banner(120)).toContain("sign in → project");
-    expect(banner(120, false)).toContain("Welcome to");
-    expect(banner(120, false)).toContain("DeepEval");
-    expect(banner(120, false)).toContain("judge model → method → run");
-    expect(banner(120, false)).not.toContain("the evals cloud platform");
+  });
+
+  it("draws DeepEval's own wordmark when Confident AI is declined", () => {
+    const local = banner(120, false);
+    expect(local).toContain("Welcome to");
+    expect(local).toContain("DeepEval");
+    expect(local.split("\n")).toContain(
+      "|_______/  \\_______/ \\_______/| $$____/ |________/ \\_/    \\_______/|__/",
+    );
+    expect(local).toContain("judge model → method → run");
+    expect(local).not.toContain("the evals cloud platform");
+    expect(local).not.toContain("Confident");
+    expect(banner(70, false)).toContain("DEEPEVAL");
   });
 
   it("keeps the money type at narrower widths instead of another font", () => {
