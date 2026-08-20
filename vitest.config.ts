@@ -17,5 +17,11 @@ export default defineConfig({
   test: {
     environment: "node",
     restoreMocks: true,
+    /**
+     * Assertions read plain text, so color cannot depend on whether the shell
+     * or the CI runner happens to enable it. `tests/ui.test.ts` unsets this to
+     * assert the palette itself.
+     */
+    env: { NO_COLOR: "1" },
   },
 });
