@@ -11,13 +11,13 @@ Run the checksum-verified standalone release from an interactive terminal.
 From Confident AI:
 
 ```sh
-curl -fsSL "https://www.confident-ai.com/wizard/setup.sh" | sh
+curl -fsSL "https://www.confident-ai.com/setup.sh" | sh
 ```
 
 From DeepEval (asks whether to use Confident AI first):
 
 ```sh
-curl -fsSL "https://deepeval.com/wizard/setup.sh" | sh
+curl -fsSL "https://deepeval.com/setup.sh" | sh
 ```
 
 Answering yes signs in, saves a project API key, and verifies the run in the
@@ -118,8 +118,9 @@ built CLI at it; otherwise pass `--project-dir` to any throwaway folder.
 
 `npm run build:sea` creates a Node Single Executable Application in `release/`.
 Tagged releases build darwin/linux x64/arm64 archives and `SHA256SUMS`.
-Host `scripts/deepeval-setup.sh` at `https://deepeval.com/wizard/setup.sh` so
-that entry passes `--from deepeval`.
+Both install scripts are served by the sites themselves, from the
+`confident-landing` and `deepeval` repositories, and download those archives.
+The DeepEval entry passes `--from deepeval`, so keep the two copies in sync.
 
 ## License
 
