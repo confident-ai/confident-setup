@@ -8,6 +8,9 @@ import pc from "picocolors";
 /** Landing `--brand-violet: #760eff`. */
 const BRAND_RGB = [118, 14, 255] as const;
 
+/** DeepEval progress percentage `#00e5ff`. */
+const ACCENT_RGB = [0, 229, 255] as const;
+
 const rgb =
   (red: number, green: number, blue: number) =>
   (text: string): string =>
@@ -15,11 +18,14 @@ const rgb =
       ? `\x1b[38;2;${red};${green};${blue}m${text}\x1b[39m`
       : text;
 
-/**
- * The wizard's single accent. Steps, links, spinners, project names, and
- * success marks all use it, so nothing competes for attention except `alert`.
- */
+/** Reserved for the Confident AI name and wordmark. */
 export const brand = rgb(...BRAND_RGB);
+
+/**
+ * Everything else the wizard highlights: steps, links, spinners, project names,
+ * and success marks, so nothing competes for attention except `alert`.
+ */
+export const accent = rgb(...ACCENT_RGB);
 
 /** Landing `--accent-label-ember: rgba(255, 65, 1, 1)`, for warnings and errors. */
 export const alert = rgb(255, 65, 1);
@@ -108,14 +114,14 @@ export const stepHeading = (
 ): string => {
   const title = detail ?? steps[current]?.title;
   if (!title) throw new Error(`Unknown wizard step: ${current}`);
-  return `${brand(`Step ${current} of ${Object.keys(steps).length}`)}  ${title}`;
+  return `${accent(`Step ${current}/${Object.keys(steps).length}`)}  ${title}`;
 };
 
 /** DeepEval `render_login_message`, minus its login-specific wording. */
 export const welcomeMessage = (useConfidentAi = true): string =>
   useConfidentAi
     ? `🥳 Welcome to ${brand("Confident AI")}, the evals cloud platform 🏡❤️`
-    : `🥳 Welcome to ${brand("DeepEval")} evaluation setup`;
+    : `🥳 Welcome to ${accent("DeepEval")} evaluation setup`;
 
 /** The `deepeval login` banner, stepped down to fit the terminal width. */
 export const banner = (

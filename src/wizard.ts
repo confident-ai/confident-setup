@@ -38,6 +38,7 @@ import {
   readEnvValues,
   writeEnvValues,
 } from "./env.js";
+import { restoreTerminalFocus } from "./focus.js";
 import { describeGitStatus, inspectGit, runCommand } from "./git.js";
 import {
   detectJudge,
@@ -72,7 +73,14 @@ import {
 import { buildAgentPrompt } from "./prompt.js";
 import { readSetupResult, type SetupResult } from "./result.js";
 import { classifyErrorCode, SetupTelemetry } from "./telemetry.js";
-import { alert, banner, brand, stepHeading, wizardStepsFor } from "./theme.js";
+import {
+  accent,
+  alert,
+  banner,
+  brand,
+  stepHeading,
+  wizardStepsFor,
+} from "./theme.js";
 import { log, spinner } from "./ui.js";
 import { verifyTestRun, type VerificationResult } from "./verification.js";
 
@@ -82,6 +90,10 @@ export interface JudgeSelection {
   provider?: JudgeProvider;
 }
 
+/**
+ * A prompt can be cancelled from anywhere, so the footer's docs link lives here
+ * rather than being threaded through every prompt.
+ */
 let evaluationDocsUrl = EVALUATION_DOCS_URL;
 
 const showCancellation = (message = "Setup cancelled."): void => {
@@ -118,6 +130,11 @@ export const pairingUrlForApp = (
   configured.search = provided.search;
   configured.hash = provided.hash;
   return configured.toString();
+};
+
+const ignoreEnvLocal = async (projectDirectory: string): Promise<void> => {
+  const changed = await ensureEnvLocalIgnored(projectDirectory, runCommand);
+  if (changed) log.info("Added .env.local to .gitignore.");
 };
 
 const confirmUnsafeGitState = async (
@@ -358,7 +375,7 @@ const summarizeResult = (result: SetupResult, testRunUrl?: string): string => {
   const lines = [
     `Status: ${
       result.status === "completed"
-        ? brand(result.status)
+        ? accent(result.status)
         : alert(result.status)
     }`,
     `SDKs: ${result.sdks.join(", ")}`,
@@ -367,17 +384,17 @@ const summarizeResult = (result: SetupResult, testRunUrl?: string): string => {
     `Metrics: ${result.metrics.join(", ") || "none"}`,
     `Rerun: ${pc.bold(result.rerunCommand)}`,
   ];
-  if (testRunUrl) lines.push(`Test run: ${brand(testRunUrl)}`);
+  if (testRunUrl) lines.push(`Test run: ${accent(testRunUrl)}`);
   if (result.errors?.length) lines.push(`Issues: ${result.errors.join("; ")}`);
   return lines.join("\n");
 };
 
 const completionOutro = (verified: boolean, useConfidentAi: boolean): string =>
   [
-    `${brand(useConfidentAi ? "Confident AI" : "DeepEval")} ${pc.dim("evaluation setup complete.")}`,
+    `${useConfidentAi ? brand("Confident AI") : accent("DeepEval")} ${pc.dim("evaluation setup complete.")}`,
     "",
     verified
-      ? `${brand("✔")} Your evaluation is ready to rerun.${
+      ? `${accent("✔")} Your evaluation is ready to rerun.${
           useConfidentAi ? " Review it in Confident AI." : ""
         }`
       : `Next: finish the evaluation.${
@@ -522,7 +539,7 @@ const configureJudgeModel = async (
       .filter((secret) => env[secret.envVar]?.trim())
       .map((secret) => secret.envVar);
     detecting.stop(
-      `Judge model ready: ${brand(detected.provider.label)}${
+      `Judge model ready: ${accent(detected.provider.label)}${
         found.length ? ` (${listLabels(found, "and")} found)` : ""
       }.`,
     );
@@ -684,12 +701,12 @@ const runBuiltInMode = async (
             {
               label: "Allow model-backed metrics",
               value: "allow",
-              hint: "Run the selected evaluation now",
+              hint: "Run every metric now, judge included",
             },
             {
               label: "Use deterministic metrics only",
               value: "deterministic",
-              hint: "Avoid model-provider usage",
+              hint: "Still runs now, without model-provider usage",
             },
           ],
         }),
@@ -790,8 +807,8 @@ const finishManualMode = async (
   const decision = requiredPrompt<"verify" | "later">(
     await select({
       message: [
-        "Follow the DeepEval evaluation quickstart for your project:",
-        brand(docsUrl),
+        "Follow the evaluation quickstart for your project:",
+        accent(docsUrl),
         "",
         pc.bold("Did you complete and run the evaluation?"),
       ].join("\n"),
@@ -825,16 +842,17 @@ const finishManualMode = async (
     testRunId,
   );
   if (!verification) return false;
-  note(brand(verification.testRunUrl), "Verified Confident AI test run");
+  note(accent(verification.testRunUrl), "Verified Confident AI test run");
   return true;
 };
 
 export const runWizard = async (args: CliArgs): Promise<void> => {
-  const target = await stat(args.projectDir).catch(() => undefined);
-  if (!target?.isDirectory()) {
+  const directory = await stat(args.projectDir).catch(() => undefined);
+  if (!directory?.isDirectory()) {
     throw new Error(`Project directory does not exist: ${args.projectDir}`);
   }
 
+  // Cancelling the opt-in prompt below should still cite DeepEval's own docs.
   const fromDeepEval = requiresConfidentOptIn(args.from);
   if (fromDeepEval) evaluationDocsUrl = DEEPEVAL_DOCS_URL;
 
@@ -892,7 +910,7 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
           pc.dim(
             "If your browser did not open automatically, open the link below:",
           ),
-          brand(pairingUrl),
+          accent(pairingUrl),
         ].join("\n"),
       );
       await open(pairingUrl).catch(() => {
@@ -915,6 +933,7 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
           throw error;
         }
       })();
+      await restoreTerminalFocus();
       const browserProject =
         onboarding.state === "existing_user"
           ? onboarding.projects.find(
@@ -927,7 +946,7 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
         onboarding.state === "existing_user" &&
           onboarding.organization &&
           browserProject
-          ? `Browser setup complete. (org: ${brand(onboarding.organization.name)}, project: ${brand(browserProject.name)})`
+          ? `Browser setup complete. (org: ${accent(onboarding.organization.name)}, project: ${accent(browserProject.name)})`
           : authorization.email
             ? `Browser sign-in complete (${authorization.email}).`
             : "Browser sign-in complete.",
@@ -949,11 +968,11 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
         const project = onboarding.projects.find(
           (candidate) => candidate.id === completion.projectId,
         );
-        const target = [onboarding.organization?.name, project?.name].filter(
+        const labels = [onboarding.organization?.name, project?.name].filter(
           Boolean,
         );
-        if (target.length && project?.id !== browserProject?.id) {
-          log.success(`Project setup complete (${target.join(" / ")}).`);
+        if (labels.length && project?.id !== browserProject?.id) {
+          log.success(`Project setup complete (${labels.join(" / ")}).`);
         }
       }
 
@@ -961,26 +980,15 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
       await writeEnvValues(args.projectDir, {
         [CONFIDENT_API_KEY]: completion.apiKey,
       });
-      const gitignoreChanged = await ensureEnvLocalIgnored(
-        args.projectDir,
-        runCommand,
-      );
       log.success("Saved project credentials securely to .env.local.");
-      if (gitignoreChanged) {
-        log.info("Added .env.local to .gitignore.");
-      }
+      await ignoreEnvLocal(args.projectDir);
       cloud = { apiKey: completion.apiKey, projectId: completion.projectId };
     }
 
     log.message(heading(useConfidentAi ? 4 : 1));
     const judge = await configureJudgeModel(args.projectDir);
-    if (!useConfidentAi) {
-      const gitignoreChanged = await ensureEnvLocalIgnored(
-        args.projectDir,
-        runCommand,
-      );
-      if (gitignoreChanged) log.info("Added .env.local to .gitignore.");
-    }
+    // The cloud path already ignored the file when it saved the project key.
+    if (!useConfidentAi) await ignoreEnvLocal(args.projectDir);
 
     log.message(heading(useConfidentAi ? 5 : 2));
     const readyAgents = await discoverReadyAgents(args.projectDir);
@@ -1005,7 +1013,7 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
           ? "Launch the detected agent"
           : mode === "own-agent"
             ? "Paste the prompt into your agent"
-            : "Follow the DeepEval quickstart",
+            : "Follow the evaluation quickstart",
       ),
     );
     if (mode === "built-in") {

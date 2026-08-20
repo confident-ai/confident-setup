@@ -45,7 +45,9 @@ npm run build
   history unlabeled on purpose: curating evaluation datasets is the work being
   tested, so do not add expected outputs or relevance labels to its data.
 - Terminal color must go through `src/theme.ts`, which honors `NO_COLOR` and
-  non-TTY output. It keeps one accent plus ember for problems, so do not add
-  hues. Clack's own blue/green/yellow symbols are re-themed in `src/ui.ts`;
-  import `log` and `spinner` from there rather than from `@clack/prompts`.
+  non-TTY output. Brand violet is only the Confident AI wordmark and name;
+  everything else the wizard highlights uses the cyan accent, plus ember for
+  problems, so do not add hues. Clack's own blue/green/yellow symbols are
+  re-themed in `src/ui.ts`; import `log` and `spinner` from there rather than
+  from `@clack/prompts`.
 - Do not commit or push unless the user explicitly asks.

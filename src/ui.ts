@@ -1,7 +1,7 @@
 /**
  * Clack ships a different color per message kind (blue info, green success and
  * step, yellow warn, red error, magenta spinner). This narrows all of them to
- * the brand accent, leaving ember for the two kinds the user must act on.
+ * the accent, leaving ember for the two kinds the user must act on.
  */
 
 import {
@@ -15,18 +15,18 @@ import {
   type SpinnerResult,
 } from "@clack/prompts";
 
-import { alert, brand } from "./theme.js";
+import { accent, alert } from "./theme.js";
 
 type Message = string | string[];
 
 export const log = {
   message: (message: Message): void => clackLog.message(message),
   info: (message: Message): void =>
-    clackLog.message(message, { symbol: brand(S_INFO) }),
+    clackLog.message(message, { symbol: accent(S_INFO) }),
   step: (message: Message): void =>
-    clackLog.message(message, { symbol: brand(S_STEP_SUBMIT) }),
+    clackLog.message(message, { symbol: accent(S_STEP_SUBMIT) }),
   success: (message: Message): void =>
-    clackLog.message(message, { symbol: brand(S_SUCCESS) }),
+    clackLog.message(message, { symbol: accent(S_SUCCESS) }),
   warn: (message: Message): void =>
     clackLog.message(message, { symbol: alert(S_WARN) }),
   error: (message: Message): void =>
@@ -38,7 +38,7 @@ export const log = {
  * so the final line is erased and reprinted through the themed log instead.
  */
 export const spinner = (): SpinnerResult => {
-  const inner = clackSpinner({ styleFrame: brand });
+  const inner = clackSpinner({ styleFrame: accent });
   const finish =
     (write: (message: string) => void) =>
     (message = ""): void => {

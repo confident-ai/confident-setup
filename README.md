@@ -20,8 +20,9 @@ From DeepEval (asks whether to use Confident AI first):
 curl -fsSL "https://deepeval.com/wizard/setup.sh" | sh
 ```
 
-Yes still signs in, saves an API key, and adds the evaluation. No skips the
-cloud project and still sets up a local DeepEval evaluation.
+Answering yes signs in, saves a project API key, and verifies the run in the
+cloud. Answering no skips those steps and still sets up a local DeepEval
+evaluation.
 
 Options:
 
@@ -39,18 +40,18 @@ The default services are `https://app.confident-ai.com` and
 
 ## What it does
 
-The wizard runs six labeled steps and shows the whole route up front. A
-DeepEval user who declines Confident AI skips sign-in, project, and API key,
-then still sets the judge model, adds the evaluation, and runs it locally.
+The wizard runs six labeled steps and shows the whole route up front. Before
+step one it checks Git and asks explicitly before continuing in a dirty or
+non-Git directory. A DeepEval user who declines Confident AI skips the first
+three steps, then still sets the judge model, adds the evaluation, and runs it
+locally.
 
-1. Checks Git and asks explicitly before continuing in a dirty or non-Git
-   directory.
-2. Opens browser device pairing and retrieves onboarding state from Confident
+1. Opens browser device pairing and retrieves onboarding state from Confident
    AI.
-3. Validates or selects a project and creates a project-scoped API key.
-4. Safely merges `CONFIDENT_API_KEY` into `.env.local`, sets mode `0600`, and
+2. Validates or selects a project and creates a project-scoped API key.
+3. Safely merges `CONFIDENT_API_KEY` into `.env.local`, sets mode `0600`, and
    ensures the file is ignored by Git.
-5. Sets up the judge model that powers LLM metrics, covering every provider
+4. Sets up the judge model that powers LLM metrics, covering every provider
    DeepEval's `initialize_model` can select: OpenAI, Anthropic, Gemini, Azure
    OpenAI, Bedrock, OpenRouter, DeepSeek, Grok, Moonshot, LiteLLM, Portkey,
    Ollama, and any OpenAI-compatible local server. Keys already in the
@@ -61,14 +62,18 @@ then still sets the judge model, adds the evaluation, and runs it locally.
    DeepEval can infer are never demanded: Bedrock can use your AWS credential
    chain, Gemini on Vertex AI needs no key, and LiteLLM reuses an upstream one.
    Skipping is allowed and restricts the evaluation to deterministic metrics.
-6. Offers three ways to add the evaluation:
+5. Offers three ways to add the evaluation:
    - a detected coding agent, named in the prompt when Claude Code, Codex, or
      Cursor CLI is installed and authenticated;
    - a prompt you paste into your own coding agent;
    - manual setup using the
-     [DeepEval quickstart](https://www.confident-ai.com/docs/llm-evaluation/quickstart).
-7. Validates the agent's structured result and verifies its test run with the
-   Confident API.
+     [evaluation quickstart](https://www.confident-ai.com/docs/llm-evaluation/quickstart),
+     or the [DeepEval docs](https://deepeval.com/docs/getting-started) for a
+     local-only run.
+6. Runs the evaluation, validates the agent's structured result, and verifies
+   its test run with the Confident API. Declining model-backed judge metrics
+   still runs the deterministic ones rather than leaving the evaluation
+   unexecuted.
 
 Detected agents first pass executable discovery, authentication, and read-only
 smoke checks (Claude plan mode, the Codex read-only sandbox, Cursor ask mode).

@@ -50,17 +50,17 @@ describe("welcome banner", () => {
 describe("wizard steps", () => {
   it("labels position and title without repeating what remains", () => {
     expect(WIZARD_STEP_COUNT).toBe(6);
-    expect(stepHeading(2)).toContain("Step 2 of 6");
+    expect(stepHeading(2)).toContain("Step 2/6");
     expect(stepHeading(2)).toContain("Choose project");
     expect(stepHeading(2)).not.toContain("left");
   });
 
   it("accepts a title that depends on the chosen setup mode", () => {
     expect(stepHeading(6, "Launch the detected agent")).toContain(
-      "Step 6 of 6  Launch the detected agent",
+      "Step 6/6  Launch the detected agent",
     );
     expect(stepHeading(3, undefined, localWizardSteps)).toContain(
-      "Step 3 of 3  Run the evaluation",
+      "Step 3/3  Run the evaluation",
     );
   });
 });

@@ -22,7 +22,9 @@ integration.
   code before editing. Preserve the project's conventions.
 - Obtain user consent before generating synthetic dataset rows or running
   evaluations that invoke paid models. If the runtime context records consent
-  already gathered by the wizard, honor it without asking again.
+  already gathered by the wizard, honor it without asking again. Consent
+  recorded as not granted withholds the model-backed metrics, never the run
+  itself.
 - Do not add tracing unless the evaluation genuinely needs application spans,
   traces, or threads. Do not turn this task into observability setup.
 - Make focused changes only. Do not commit or push.
@@ -51,8 +53,9 @@ Python SDK and/or DeepEval TypeScript SDK, whichever fits this repository.
    where they answer the question; ask before any paid model-judge run.
 6. Add one documented command that reruns the same evaluation. If Confident AI
    is configured, that command should also upload a Confident AI test run.
-   Execute safe local checks. Run the evaluation only after satisfying the
-   consent rules above.
+   Execute safe local checks, then run the evaluation: every metric when
+   model-backed runs are consented to, otherwise the deterministic metrics
+   alone. Finishing without running it is not an acceptable outcome.
 7. If the repository already has evaluation infrastructure, extend it instead
    of creating a parallel framework.
 
@@ -76,7 +79,7 @@ exact shape:
   "rerunCommand": "exact safe command",
   "testRunId": "id returned by the completed Confident AI run",
   "testRunUrl": "optional URL returned by tooling",
-  "errors": ["only when partial or failed"]
+  "errors": ["only for skipped metrics, partial work, or failures"]
 }
 ```
 
@@ -88,5 +91,6 @@ result requires `testRunId` when Confident AI is configured; omit `testRunId`
 and `testRunUrl` for a local-only run. A failed result requires at least one
 `errors` entry. Use repository-relative paths and never include secret values.
 
-If consent is needed or execution cannot finish, leave the implementation
-rerunnable and report `partial` with concise errors and no invented test run ID.
+Report `completed` once the evaluation has actually run, naming any metric you
+had to skip in `errors`. Reserve `partial` for an implementation that is
+rerunnable but could not be executed at all, and never invent a test run ID.

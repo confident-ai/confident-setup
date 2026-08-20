@@ -8,6 +8,11 @@ const importWithColor = async () => {
   return import("../src/ui.js");
 };
 
+const importThemeWithColor = async () => {
+  await importWithColor();
+  return import("../src/theme.js");
+};
+
 const capture = (write: () => void): string => {
   const chunks: string[] = [];
   const spy = vi
@@ -25,6 +30,7 @@ const capture = (write: () => void): string => {
 };
 
 const BRAND = "38;2;118;14;255";
+const ACCENT = "38;2;0;229;255";
 const ALERT = "38;2;255;65;1";
 
 afterEach(() => {
@@ -33,11 +39,11 @@ afterEach(() => {
 });
 
 describe("themed clack logs", () => {
-  it("marks progress with the brand accent instead of blue and green", async () => {
+  it("marks progress with one accent instead of blue and green", async () => {
     const { log } = await importWithColor();
     for (const write of [log.info, log.step, log.success]) {
       const output = capture(() => write("Signing in"));
-      expect(output).toContain(BRAND);
+      expect(output).toContain(ACCENT);
       expect(output).not.toContain(ALERT);
     }
   });
@@ -47,7 +53,16 @@ describe("themed clack logs", () => {
     for (const write of [log.warn, log.error]) {
       const output = capture(() => write("Could not open the browser"));
       expect(output).toContain(ALERT);
-      expect(output).not.toContain(BRAND);
+      expect(output).not.toContain(ACCENT);
     }
+  });
+
+  it("saves brand violet for the Confident AI name", async () => {
+    const { stepHeading, welcomeMessage } = await importThemeWithColor();
+    expect(welcomeMessage()).toContain(BRAND);
+    expect(welcomeMessage(false)).not.toContain(BRAND);
+    expect(welcomeMessage(false)).toContain(ACCENT);
+    expect(stepHeading(1)).toContain(ACCENT);
+    expect(stepHeading(1)).not.toContain(BRAND);
   });
 });
