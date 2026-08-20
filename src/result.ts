@@ -7,9 +7,7 @@ export const setupResultSchema = z
     status: z.enum(["completed", "partial", "failed"]),
     changedFiles: z.array(z.string().min(1)),
     sdks: z.array(z.enum(["deepeval-python", "deepeval-typescript"])).min(1),
-    levels: z
-      .array(z.enum(["test-case", "span", "trace", "thread"]))
-      .min(1),
+    levels: z.array(z.enum(["test-case", "span", "trace", "thread"])).min(1),
     datasetSource: z.string().min(1),
     metrics: z.array(z.string().min(1)).max(12),
     rerunCommand: z.string().min(1),
@@ -19,13 +17,6 @@ export const setupResultSchema = z
   })
   .strict()
   .superRefine((result, context) => {
-    if (result.status === "completed" && !result.testRunId) {
-      context.addIssue({
-        code: "custom",
-        path: ["testRunId"],
-        message: "A completed setup must include testRunId.",
-      });
-    }
     if (result.status === "failed" && !result.errors?.length) {
       context.addIssue({
         code: "custom",
@@ -37,10 +28,27 @@ export const setupResultSchema = z
 
 export type SetupResult = z.infer<typeof setupResultSchema>;
 
-export const parseSetupResult = (value: unknown): SetupResult =>
-  setupResultSchema.parse(value);
+export const parseSetupResult = (
+  value: unknown,
+  requireTestRun = true,
+): SetupResult => {
+  const result = setupResultSchema.parse(value);
+  if (requireTestRun && result.status === "completed" && !result.testRunId) {
+    throw new z.ZodError([
+      {
+        code: "custom",
+        path: ["testRunId"],
+        message: "A completed setup must include testRunId.",
+      },
+    ]);
+  }
+  return result;
+};
 
-export const readSetupResult = async (path: string): Promise<SetupResult> => {
+export const readSetupResult = async (
+  path: string,
+  requireTestRun = true,
+): Promise<SetupResult> => {
   const value: unknown = JSON.parse(await readFile(path, "utf8"));
-  return parseSetupResult(value);
+  return parseSetupResult(value, requireTestRun);
 };

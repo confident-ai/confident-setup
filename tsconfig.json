@@ -12,6 +12,11 @@
     "types": ["node", "vitest/globals"],
     "outDir": "dist"
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts", "rolldown.config.ts"],
+  "include": [
+    "src/**/*.ts",
+    "tests/**/*.ts",
+    "rolldown.config.ts",
+    "vitest.config.ts"
+  ],
   "exclude": ["dist", "release"]
 }

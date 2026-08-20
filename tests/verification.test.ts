@@ -18,12 +18,11 @@ describe("test run verification", () => {
       ),
     ).resolves.toEqual({
       testRunId: "run/id",
-      testRunUrl:
-        "https://app.example/project/project%2Fid/test-runs/run%2Fid",
+      testRunUrl: "https://app.example/project/project%2Fid/test-runs/run%2Fid",
     });
     expect(fetch).toHaveBeenCalledWith(
       "https://api.example/v1/test-runs/run%2Fid",
-      { headers: { authorization: "Bearer project-key" } },
+      { headers: { CONFIDENT_API_KEY: "project-key" } },
     );
   });
 
@@ -43,9 +42,45 @@ describe("test run verification", () => {
     ).rejects.toThrow("could not be verified");
   });
 
+  it("reports the status the platform returned", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ data: { status: "IN_PROGRESS" } }), {
+        status: 200,
+      }),
+    );
+    await expect(
+      verifyTestRun(
+        "https://api.example",
+        "https://app.example",
+        "key",
+        "project",
+        "run",
+        fetch,
+      ),
+    ).resolves.toMatchObject({ status: "IN_PROGRESS" });
+  });
+
+  it("rejects runs that errored or were cancelled", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ data: { status: "ERRORED" } }), {
+        status: 200,
+      }),
+    );
+    await expect(
+      verifyTestRun(
+        "https://api.example",
+        "https://app.example",
+        "key",
+        "project",
+        "run",
+        fetch,
+      ),
+    ).rejects.toThrow("status ERRORED");
+  });
+
   it("constructs the canonical project permalink", () => {
-    expect(
-      buildTestRunUrl("https://app.example", "project", "run"),
-    ).toBe("https://app.example/project/project/test-runs/run");
+    expect(buildTestRunUrl("https://app.example", "project", "run")).toBe(
+      "https://app.example/project/project/test-runs/run",
+    );
   });
 });

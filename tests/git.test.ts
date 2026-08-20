@@ -8,7 +8,9 @@ import {
 
 describe("Git preflight", () => {
   it("reports non-Git directories", async () => {
-    const runner: CommandRunner = vi.fn().mockRejectedValue(new Error("no git"));
+    const runner: CommandRunner = vi
+      .fn()
+      .mockRejectedValue(new Error("no git"));
     await expect(inspectGit("/repo", runner)).resolves.toEqual({
       isRepository: false,
       dirty: false,
@@ -31,7 +33,8 @@ describe("Git preflight", () => {
     expect(status.dirty).toBe(true);
     expect(status.files).toHaveLength(20);
     expect(status.totalChanges).toBe(23);
-    expect(describeGitStatus(status)).toContain("…and 3 more");
+    expect(describeGitStatus(status)).toContain("…plus 3 more");
+    expect(describeGitStatus(status)).toContain("1. src/file-0.ts");
   });
 
   it("recognizes a clean repository", async () => {

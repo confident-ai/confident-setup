@@ -5,3 +5,4 @@ coverage/
 *.blob
 confident-setup
 .env.local
+examples/

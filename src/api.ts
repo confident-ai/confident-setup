@@ -13,6 +13,7 @@ const authSessionSchema = z.object({
   expiresIn: z.number().positive(),
   interval: z.number().positive(),
   protocolVersion: z.number(),
+  eventToken: z.string().optional(),
 });
 
 const authTokenSchema = z.discriminatedUnion("status", [
@@ -69,9 +70,7 @@ export const onboardingSchema = z.discriminatedUnion("state", [
       email: z.string().nullable(),
       name: z.string().nullable(),
     }),
-    organization: z
-      .object({ id: z.string(), name: z.string() })
-      .nullable(),
+    organization: z.object({ id: z.string(), name: z.string() }).nullable(),
     projects: z.array(projectSchema),
   }),
 ]);
@@ -83,6 +82,12 @@ const completionSchema = z.object({
 });
 
 export type AuthSession = z.infer<typeof authSessionSchema>;
+export interface AuthSessionContext {
+  purpose: "evaluation_setup";
+  source: string;
+  organizationId?: string;
+  projectId?: string;
+}
 export type Onboarding = z.infer<typeof onboardingSchema>;
 export type QuestionnaireAnswer = string | boolean | string[];
 export type QuestionnaireAnswers = Record<string, QuestionnaireAnswer>;
@@ -106,7 +111,9 @@ const responseError = async (response: Response): Promise<Error> => {
   try {
     const body: unknown = await response.json();
     const parsed = z
-      .object({ error: z.union([z.string(), z.record(z.string(), z.unknown())]) })
+      .object({
+        error: z.union([z.string(), z.record(z.string(), z.unknown())]),
+      })
       .safeParse(body);
     if (parsed.success && typeof parsed.data.error === "string") {
       message = parsed.data.error;
@@ -121,18 +128,19 @@ export class ConfidentApi {
   readonly #baseUrl: string;
   readonly #dependencies: ApiDependencies;
 
-  constructor(
-    baseUrl: string,
-    dependencies: Partial<ApiDependencies> = {},
-  ) {
+  constructor(baseUrl: string, dependencies: Partial<ApiDependencies> = {}) {
     this.#baseUrl = baseUrl.replace(/\/+$/, "");
     this.#dependencies = { ...defaultDependencies, ...dependencies };
   }
 
-  async createAuthSession(): Promise<AuthSession> {
+  async createAuthSession(context: AuthSessionContext): Promise<AuthSession> {
     const response = await this.#dependencies.fetch(
       `${this.#baseUrl}/cli/auth/sessions`,
-      { method: "POST" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ context }),
+      },
     );
     if (!response.ok) throw await responseError(response);
     const body: unknown = await response.json();
@@ -146,21 +154,25 @@ export class ConfidentApi {
     const deadline = this.#dependencies.now() + session.expiresIn * 1_000;
 
     while (this.#dependencies.now() < deadline) {
-      if (signal?.aborted) throw new Error("Browser authorization was cancelled.");
+      if (signal?.aborted)
+        throw new Error("Browser authorization was cancelled.");
       const response = await this.#dependencies.fetch(
         `${this.#baseUrl}/cli/auth/sessions/token`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ deviceCode: session.deviceCode }),
-          signal,
+          ...(signal ? { signal } : {}),
         },
       );
       if (!response.ok) throw await responseError(response);
       const body: unknown = await response.json();
       const token = envelope(authTokenSchema).parse(body).data;
       if (token.status === "authenticated") {
-        return { setupToken: token.setupToken, email: token.email };
+        return {
+          setupToken: token.setupToken,
+          ...(token.email !== undefined ? { email: token.email } : {}),
+        };
       }
       await this.#dependencies.sleep(session.interval * 1_000);
     }

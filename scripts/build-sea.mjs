@@ -19,11 +19,29 @@ const postject = resolve(
 
 execFileSync("npm", ["run", "build"], { cwd: root, stdio: "inherit" });
 await mkdir(outputDirectory, { recursive: true });
-execFileSync(process.execPath, ["--experimental-sea-config", "sea-config.json"], {
-  cwd: root,
-  stdio: "inherit",
-});
-await copyFile(process.execPath, output);
+execFileSync(
+  process.execPath,
+  ["--experimental-sea-config", "sea-config.json"],
+  {
+    cwd: root,
+    stdio: "inherit",
+  },
+);
+if (process.platform === "darwin") {
+  execFileSync(
+    "lipo",
+    [
+      process.execPath,
+      "-thin",
+      process.arch === "x64" ? "x86_64" : process.arch,
+      "-output",
+      output,
+    ],
+    { stdio: "inherit" },
+  );
+} else {
+  await copyFile(process.execPath, output);
+}
 await chmod(output, 0o755);
 
 const args = [

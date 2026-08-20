@@ -19,6 +19,39 @@ const jsonResponse = (body: unknown, status = 200): Response =>
   });
 
 describe("ConfidentApi auth polling", () => {
+  it("binds source and project context when creating a session", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      jsonResponse({
+        success: true,
+        data: { ...session, eventToken: "event-token" },
+      }),
+    );
+    const api = new ConfidentApi("https://api.example", { fetch });
+
+    await expect(
+      api.createAuthSession({
+        purpose: "evaluation_setup",
+        source: "in_app_setup",
+        organizationId: "org",
+        projectId: "project",
+      }),
+    ).resolves.toMatchObject({ eventToken: "event-token" });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.example/cli/auth/sessions",
+      expect.objectContaining({
+        body: JSON.stringify({
+          context: {
+            purpose: "evaluation_setup",
+            source: "in_app_setup",
+            organizationId: "org",
+            projectId: "project",
+          },
+        }),
+      }),
+    );
+  });
+
   it("polls pending sessions until authenticated", async () => {
     let now = 0;
     const fetch = vi

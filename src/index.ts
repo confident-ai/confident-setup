@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 
-import pc from "picocolors";
-
 import { helpText, parseArgs, requireInteractiveTty } from "./args.js";
 import { isWizardCancellation, runWizard } from "./wizard.js";
 
@@ -21,6 +19,6 @@ main().catch((error: unknown) => {
     return;
   }
   const message = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`${pc.red("Confident Setup Wizard failed:")} ${message}\n`);
+  process.stderr.write(`Setup failed: ${message}\n`);
   process.exitCode = 1;
 });

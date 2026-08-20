@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { redactTelemetry, SetupTelemetry } from "../src/telemetry.js";
+import {
+  classifyErrorCode,
+  redactTelemetry,
+  SetupTelemetry,
+} from "../src/telemetry.js";
 
 describe("telemetry redaction", () => {
   it("redacts sensitive keys and token-shaped values recursively", () => {
@@ -23,6 +27,23 @@ describe("telemetry redaction", () => {
     });
   });
 
+  it("classifies failures into codes that carry no message text", () => {
+    expect(classifyErrorCode(new Error("claude timed out after 1800s."))).toBe(
+      "timeout",
+    );
+    expect(classifyErrorCode(new Error("EACCES: open .env.local"))).toBe(
+      "permission_denied",
+    );
+    expect(classifyErrorCode(new Error("fetch failed"))).toBe("network");
+    expect(classifyErrorCode(new Error("codex exited with 1"))).toBe(
+      "command_failed",
+    );
+    expect(classifyErrorCode(new Error("Project abc is not available."))).toBe(
+      "invalid_configuration",
+    );
+    expect(classifyErrorCode("something else entirely")).toBe("unknown");
+  });
+
   it("does not send when disabled", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>();
     const telemetry = new SetupTelemetry("https://api.example", {
@@ -40,8 +61,35 @@ describe("telemetry redaction", () => {
         .mockRejectedValue(new Error("offline")),
       disabled: false,
     });
+    telemetry.setEventToken("event-token");
     await expect(
-      telemetry.send({ event: "setup_finished" }),
+      telemetry.send({ event: "setup_completed" }),
     ).resolves.toBeUndefined();
+  });
+
+  it("authenticates event delivery with the pairing event token", async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(new Response(null, { status: 202 }));
+    const telemetry = new SetupTelemetry("https://api.example", {
+      fetch,
+      disabled: false,
+    });
+    telemetry.setEventToken("event-token");
+
+    await telemetry.send({
+      event: "setup_completed",
+      step: "evaluation",
+      result: "succeeded",
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.example/cli/setup/events",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          authorization: "Bearer event-token",
+        }),
+      }),
+    );
   });
 });

@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 
-export type AgentKind = "claude" | "codex";
+export type AgentKind = "claude" | "codex" | "cursor";
 export type AgentPermission = "read-only" | "full";
 
 export interface AgentDefinition {
@@ -29,12 +29,14 @@ export type AgentRunner = (
     env?: NodeJS.ProcessEnv;
     stdio?: "inherit" | "pipe";
     timeoutMs?: number;
+    onStdoutLine?: (line: string) => void;
   },
 ) => Promise<{ stdout: string }>;
 
 export const supportedAgents: AgentDefinition[] = [
   { kind: "claude", label: "Claude Code", command: "claude" },
   { kind: "codex", label: "Codex", command: "codex" },
+  { kind: "cursor", label: "Cursor CLI", command: "cursor-agent" },
 ];
 
 export const buildAgentInvocation = (
@@ -52,12 +54,18 @@ export const buildAgentInvocation = (
               prompt,
               "--permission-mode",
               "plan",
+              "--no-session-persistence",
+              "--tools",
+              "",
               "--output-format",
               "json",
             ]
           : [
               "-p",
               prompt,
+              "--no-session-persistence",
+              "--permission-mode",
+              "bypassPermissions",
               "--dangerously-skip-permissions",
               "--output-format",
               "stream-json",
@@ -65,28 +73,65 @@ export const buildAgentInvocation = (
             ],
     };
   }
+  if (agent.kind === "cursor") {
+    // The prompt is positional for this CLI, so it stays last.
+    return {
+      command: agent.command,
+      args:
+        permission === "read-only"
+          ? [
+              "--print",
+              "--output-format",
+              "json",
+              "--mode",
+              "ask",
+              "--sandbox",
+              "enabled",
+              prompt,
+            ]
+          : [
+              "--print",
+              "--output-format",
+              "stream-json",
+              "--force",
+              "--trust",
+              "--sandbox",
+              "disabled",
+              prompt,
+            ],
+    };
+  }
   return {
     command: agent.command,
     args: [
       "exec",
+      "--json",
+      "--ephemeral",
       "--sandbox",
       permission === "read-only" ? "read-only" : "danger-full-access",
+      ...(permission === "full"
+        ? ["--dangerously-bypass-approvals-and-sandbox"]
+        : []),
       "--skip-git-repo-check",
       prompt,
     ],
   };
 };
 
-export const getAuthInvocation = (
-  agent: AgentDefinition,
-): AgentInvocation => ({
+const authArguments: Record<AgentKind, string[]> = {
+  claude: ["auth", "status"],
+  codex: ["login", "status"],
+  cursor: ["status", "--format", "json"],
+};
+
+export const getAuthInvocation = (agent: AgentDefinition): AgentInvocation => ({
   command: agent.command,
-  args: agent.kind === "claude" ? ["auth", "status"] : ["login", "status"],
+  args: authArguments[agent.kind],
 });
 
 export const runAgent: AgentRunner = (
   invocation,
-  { cwd, env, stdio = "pipe", timeoutMs = 30_000 },
+  { cwd, env, stdio = "pipe", timeoutMs = 30_000, onStdoutLine },
 ) =>
   new Promise((resolve, reject) => {
     const child = spawn(invocation.command, invocation.args, {
@@ -96,9 +141,19 @@ export const runAgent: AgentRunner = (
     });
     let stdout = "";
     let stderr = "";
+    let stdoutLineBuffer = "";
     if (stdio === "pipe") {
       child.stdout?.on("data", (chunk: Buffer) => {
-        stdout += chunk.toString();
+        const text = chunk.toString();
+        stdout += text;
+        stdoutLineBuffer += text;
+        let newline = stdoutLineBuffer.indexOf("\n");
+        while (newline >= 0) {
+          const line = stdoutLineBuffer.slice(0, newline).trim();
+          stdoutLineBuffer = stdoutLineBuffer.slice(newline + 1);
+          if (line) onStdoutLine?.(line);
+          newline = stdoutLineBuffer.indexOf("\n");
+        }
       });
       child.stderr?.on("data", (chunk: Buffer) => {
         stderr += chunk.toString();
@@ -106,7 +161,11 @@ export const runAgent: AgentRunner = (
     }
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
-      reject(new Error(`${invocation.command} check timed out.`));
+      reject(
+        new Error(
+          `${invocation.command} timed out after ${Math.round(timeoutMs / 1000)}s.`,
+        ),
+      );
     }, timeoutMs);
     child.on("error", (error) => {
       clearTimeout(timer);
@@ -114,12 +173,20 @@ export const runAgent: AgentRunner = (
     });
     child.on("exit", (code, signal) => {
       clearTimeout(timer);
+      const finalLine = stdoutLineBuffer.trim();
+      if (finalLine) onStdoutLine?.(finalLine);
       if (code === 0) {
         resolve({ stdout });
       } else {
+        const detail = stderr
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .find(Boolean);
         reject(
           new Error(
-            `${invocation.command} exited with ${signal ?? code}: ${stderr.trim()}`,
+            `${invocation.command} exited with ${signal ?? code}${
+              detail ? `: ${detail.slice(0, 300)}` : ""
+            }`,
           ),
         );
       }
@@ -188,18 +255,22 @@ export const executeAgent = async (
   agent: AgentDefinition,
   cwd: string,
   prompt: string,
-  apiKey: string,
+  apiKey: string | undefined,
   resultFile: string,
   runner: AgentRunner = runAgent,
+  onProgressLine?: (line: string) => void,
 ): Promise<void> => {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    CONFIDENT_SETUP_RESULT_FILE: resultFile,
+  };
+  if (apiKey) env.CONFIDENT_API_KEY = apiKey;
+  else delete env.CONFIDENT_API_KEY;
   await runner(buildAgentInvocation(agent, "full", prompt), {
     cwd,
-    env: {
-      ...process.env,
-      CONFIDENT_API_KEY: apiKey,
-      CONFIDENT_SETUP_RESULT_FILE: resultFile,
-    },
-    stdio: "inherit",
+    env,
+    stdio: "pipe",
     timeoutMs: 30 * 60_000,
+    ...(onProgressLine ? { onStdoutLine: onProgressLine } : {}),
   });
 };

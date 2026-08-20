@@ -7,13 +7,24 @@ integration.
 ## Safety and boundaries
 
 - Never open, print, parse, search, or otherwise read `.env.local`.
-- `CONFIDENT_API_KEY` is already injected into your process environment. Use it
-  through the SDK; never copy it into source, output, commands, logs, or result
-  files.
+- When the runtime context says Confident AI is configured, `CONFIDENT_API_KEY`
+  is already available to DeepEval through the process environment or the
+  project dotenv. Use it only through the SDK; never copy it into source,
+  output, commands, logs, or result files.
+- When the runtime context says the run is local-only, do not upload to
+  Confident AI, do not read or set `CONFIDENT_API_KEY`, and do not produce a
+  test run ID.
+- Judge-model credentials reach DeepEval the same way. The runtime context below
+  names the configured provider; select metrics that its judge can serve, and
+  never read, print, or hardcode provider keys. When no judge is configured,
+  ship deterministic metrics only.
 - Inspect the application, package manifests, tests, and existing evaluation
   code before editing. Preserve the project's conventions.
-- Ask the user before generating synthetic dataset rows or running evaluations
-  that invoke paid models. Explain the likely action and cost source.
+- Obtain user consent before generating synthetic dataset rows or running
+  evaluations that invoke paid models. If the runtime context records consent
+  already gathered by the wizard, honor it without asking again. Consent
+  recorded as not granted withholds the model-backed metrics, never the run
+  itself.
 - Do not add tracing unless the evaluation genuinely needs application spans,
   traces, or threads. Do not turn this task into observability setup.
 - Make focused changes only. Do not commit or push.
@@ -40,9 +51,11 @@ Python SDK and/or DeepEval TypeScript SDK, whichever fits this repository.
 5. Avoid redundant metrics across levels. Each metric must test a distinct
    failure mode and have the fields it requires. Prefer deterministic metrics
    where they answer the question; ask before any paid model-judge run.
-6. Add one documented command that reruns the same evaluation and uploads a
-   Confident AI test run. Execute safe local checks. Run the evaluation only
-   after satisfying the consent rules above.
+6. Add one documented command that reruns the same evaluation. If Confident AI
+   is configured, that command should also upload a Confident AI test run.
+   Execute safe local checks, then run the evaluation: every metric when
+   model-backed runs are consented to, otherwise the deterministic metrics
+   alone. Finishing without running it is not an acceptable outcome.
 7. If the repository already has evaluation infrastructure, extend it instead
    of creating a parallel framework.
 
@@ -66,7 +79,7 @@ exact shape:
   "rerunCommand": "exact safe command",
   "testRunId": "id returned by the completed Confident AI run",
   "testRunUrl": "optional URL returned by tooling",
-  "errors": ["only when partial or failed"]
+  "errors": ["only for skipped metrics, partial work, or failures"]
 }
 ```
 
@@ -74,8 +87,10 @@ Allowed `status` values are `completed`, `partial`, and `failed`. Allowed SDKs
 are `deepeval-python` and `deepeval-typescript`. Allowed levels are `test-case`,
 `span`, `trace`, and `thread`. `changedFiles`, `sdks`, `levels`,
 `datasetSource`, `metrics`, and `rerunCommand` are always required. A completed
-result requires `testRunId`; a failed result requires at least one `errors`
-entry. Use repository-relative paths and never include secret values.
+result requires `testRunId` when Confident AI is configured; omit `testRunId`
+and `testRunUrl` for a local-only run. A failed result requires at least one
+`errors` entry. Use repository-relative paths and never include secret values.
 
-If consent is needed or execution cannot finish, leave the implementation
-rerunnable and report `partial` with concise errors and no invented test run ID.
+Report `completed` once the evaluation has actually run, naming any metric you
+had to skip in `errors`. Reserve `partial` for an implementation that is
+rerunnable but could not be executed at all, and never invent a test run ID.
