@@ -41,14 +41,70 @@ npm run build
 - `prompts/evaluation.md` is the canonical agent prompt. Avoid duplicate prompt
   copies. It mirrors DeepEval's own skills, so keep it aligned with
   `skills/deepeval` and `skills/deepeval-tracing` in the DeepEval repository:
-  traced single-turn evaluation is the default shape, component metrics attach
-  to the spans they judge inside that same suite, and the evaluation runs
-  exactly once, since exploratory runs spend judge money and each one that
-  reaches Confident AI creates another test run.
-- `src/deepeval.ts` decides where DeepEval lives before setup starts. Its
-  install commands are third-party contracts, so check them against Poetry, uv,
-  and pip rather than from memory. Never install into an interpreter the machine
-  manages: prefer an existing environment, otherwise a new project `.venv`.
+  component-level evaluation is the required shape, with metrics attached to the
+  spans they judge and any end-to-end metric inside that same suite, and the
+  evaluation runs exactly once, since exploratory runs spend judge money and
+  each one that reaches Confident AI creates another test run. A suite that
+  reports no span level is a failure, enforced by `src/result.ts`.
+- Follow the `deepeval` skill's recommendations by default — three to five
+  metrics, a `GEval` for whatever the product means by a good answer, metric
+  lists in their own module named after the component they score, the
+  `tests/evals/` layout with the dataset in `.dataset.json` loaded by the SDK's
+  own loader, `deepeval test run` over a bare `pytest`, and its per-shape metric
+  defaults. The divergences below are deliberate and each has a reason; anything
+  else should match the skill.
+- The dataset deliberately diverges from the `deepeval` skill, which reaches for
+  `deepeval generate`, targets 30-50 goldens, and forbids hand-written ones.
+  Setup curates 20 out of what the repository already knows and calls no model to
+  invent them: generation is Python-only, and a first run should not spend judge
+  money on data before the user has seen a single score. Reusing a dataset the
+  project already has still takes precedence.
+- Two more divergences, both because setup is a first run rather than an
+  iteration loop: component metrics are required rather than added once
+  end-to-end scores point at a component, and the suite runs once instead of the
+  skill's five rounds.
+- An application in a language neither SDK covers is the one exception, and it
+  never gets a fake component tree: it is evaluated black-box, from a standalone
+  script that calls the application and scores test cases built from goldens,
+  with Python hosting the script rather than being the project's own dependency.
+  `shape` in the result keeps the two apart, and each shape's `levels` are
+  validated against it.
+- Both DeepEval SDKs are in scope, and the prompt carries one spelling table for
+  the pair. Read the spellings off `deepeval`'s `typescript/src` and its Python
+  package rather than translating one language into the other, since the
+  surfaces genuinely differ: synthetic generation, `AsyncConfig`, `CacheConfig`,
+  and LiteLLM are Python-only, and `evalsIterator` is async-only.
+- A suite is five metrics, at least three of them judge-free, and never more
+  than two judge metrics unless the user asks for more, because judge metrics
+  are the ones that spend money and need a provider key. Verify a metric really
+  is judge-free before listing it as one: `ExactMatchMetric`,
+  `PatternMatchMetric`, `JsonCorrectnessMetric`, and `ToolCorrectnessMetric`
+  score by comparison or validation, though the last two still resolve a model
+  they never ask to score. A quota is never a reason to ship a metric that
+  cannot fail, so the prompt lets the count fall short and say why instead.
+- The evaluation runs once and is never repeated, not even to check a fix: a low
+  score is a finding to report. Only a command that failed before any metric
+  scored may be issued again, once. The agent then closes with a short report —
+  what the run found, what changed, the rerun command, one next step — which must
+  not restate what `summarizeResult` in `src/wizard.ts` already prints.
+- Multi-turn is built only on evidence from the application's code that
+  conversation state crosses turns, never from the product being called a
+  chatbot, and it is an addition to the component-level suite. The `thread`
+  level follows that same test.
+- The prompt's metric table, suite skeletons, and run flags are third-party
+  contracts, so check them against the SDKs rather than from memory: metric names
+  and the fields each one reads against `_required_params`, the skeletons against
+  `skills/deepeval/templates` and `typescript/examples`, and the flags against
+  both `test run` commands, whose short forms disagree — Python's `-i` is
+  `--ignore-errors` while TypeScript's is `--identifier` — which is why the
+  prompt spells every flag out. A metric named there must exist in both SDKs.
+- `src/deepeval.ts` decides where DeepEval lives before setup starts, for both
+  languages. Its install commands are third-party contracts, so check them
+  against Poetry, uv, pip, npm, pnpm, Yarn, and Bun rather than from memory.
+  Never install into an interpreter the machine manages: prefer an existing
+  environment, otherwise a new project `.venv`. The Node install is a regular
+  dependency because component-level instrumentation puts `deepeval/tracing`
+  imports in application code.
 - `examples/` is git-ignored scratch space for manual end-to-end runs, never
   part of the published package. A sandbox target app there keeps its support
   history unlabeled on purpose: curating evaluation datasets is the work being

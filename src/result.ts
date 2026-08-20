@@ -5,8 +5,17 @@ import { z } from "zod";
 export const setupResultSchema = z
   .object({
     status: z.enum(["completed", "partial", "failed"]),
+    /**
+     * Component-level is the shape the wizard asks for. `black-box` is the
+     * fallback an application in neither SDK's language has to fall back to,
+     * and it has no spans to report, so the two are validated apart.
+     */
+    shape: z.enum(["component-level", "black-box"]).default("component-level"),
     changedFiles: z.array(z.string().min(1)),
-    sdks: z.array(z.enum(["deepeval-python", "deepeval-typescript"])).min(1),
+    sdks: z
+      .array(z.enum(["deepeval-python", "deepeval-typescript"]))
+      .min(1)
+      .max(2),
     levels: z.array(z.enum(["test-case", "span", "trace", "thread"])).min(1),
     datasetSource: z.string().min(1),
     metrics: z.array(z.string().min(1)).max(12),
@@ -17,11 +26,36 @@ export const setupResultSchema = z
   })
   .strict()
   .superRefine((result, context) => {
-    if (result.status === "failed" && !result.errors?.length) {
+    if (result.status === "failed") {
+      if (!result.errors?.length) {
+        context.addIssue({
+          code: "custom",
+          path: ["errors"],
+          message: "A failed setup must include at least one error.",
+        });
+      }
+      return;
+    }
+    /**
+     * Component metrics are the evaluation the wizard asks for, and a span is
+     * where one can live, so a suite reporting none of them built something
+     * else.
+     */
+    if (result.shape === "component-level" && !result.levels.includes("span")) {
       context.addIssue({
         code: "custom",
-        path: ["errors"],
-        message: "A failed setup must include at least one error.",
+        path: ["levels"],
+        message:
+          "A component-level evaluation must report the span level. Report the black-box shape when the application has no SDK to instrument it with, or failed when no component metric could be attached.",
+      });
+    }
+    /** Spans come from instrumentation, which is what black-box rules out. */
+    if (result.shape === "black-box" && result.levels.includes("span")) {
+      context.addIssue({
+        code: "custom",
+        path: ["levels"],
+        message:
+          "A black-box evaluation cannot report the span level. Report the component-level shape when the application was instrumented.",
       });
     }
   });
