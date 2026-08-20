@@ -24,10 +24,9 @@ read before you write, and do not invent an SDK call, a metric, or a domain.
   names the configured provider; select metrics that its judge can serve, and
   never read, print, or hardcode provider keys. When no judge is configured,
   ship judge-free metrics only.
-- Obtain user consent before running evaluations that invoke paid models. If the
-  runtime context records consent already gathered by the wizard, honor it
-  without asking again. Consent recorded as not granted withholds the
-  model-backed metrics, never the run itself.
+- The user already agreed to this run by configuring a judge and starting setup,
+  so do not ask again about provider usage and do not offer to hold the judge
+  metrics back. A configured judge means every metric runs.
 - Instrument the application only as far as the evaluation needs it: the
   components being scored, and nothing else. Production monitoring, dashboards,
   and trace tagging for observability are out of scope.
@@ -111,13 +110,13 @@ a bespoke JSON shape the suite parses itself.
   `expected_output`, `context`, `retrieval_context`, `expected_tools`, which is
   what both SDKs expect by default, so one file serves either language.
 
-## Step 4 — Choose five metrics, at least three of them judge-free
+## Step 4 — Put three metrics on the trace and one or two on each span
 
 Every metric named here exists in both SDKs. "Reads" is what the metric takes
 off the span it is attached to, and a metric whose fields the span does not carry
 fails the run, so check each one against your component map and your goldens.
-Judge-free metrics score by comparison or validation, spend nothing, and need no
-provider key; judge metrics call the configured model on every golden.
+Judge metrics call the configured model on every golden; judge-free metrics score
+by comparison or validation, spending nothing and needing no provider key.
 
 | Metric                                        | Judge-free | Reads                                     | Attach to                                    |
 | --------------------------------------------- | ---------- | ----------------------------------------- | -------------------------------------------- |
@@ -131,59 +130,67 @@ provider key; judge metrics call the configured model on every golden.
 | `AnswerRelevancyMetric`                       | no         | input, output                             | the `llm` span that answers                  |
 | `FaithfulnessMetric`                          | no         | input, output, retrieval context          | the `llm` span that answers                  |
 | `ArgumentCorrectnessMetric`                   | no         | input, tools called                       | the `agent` span that calls tools            |
-| `TaskCompletionMetric`                        | no         | input, output                             | the `agent` span, or the trace               |
+| `TaskCompletionMetric`                        | no         | input, output                             | the trace, required on every component suite |
 | `PlanAdherenceMetric`, `StepEfficiencyMetric` | no         | input, output                             | the trace, for trajectory                    |
 | `GEval`                                       | no         | whichever fields you list in it           | any span whose criterion is product-specific |
 
-The budget, and the rules for spending it:
+**The budget.** A component-level suite carries **three metrics on the trace and
+one or two on every span worth evaluating**, so its size follows the component
+map rather than a fixed number. One of the three trace metrics must be
+`TaskCompletionMetric`: whether the application did what was asked is the
+question every other score exists to explain. A black-box suite has no spans, so
+it is **five metrics** in total. Twelve is the hard ceiling either way — on an
+application with more components than that allows, score the ones on the path
+from the request to the answer and leave the rest unscored.
 
-- **Five metrics for the whole suite, at least three of them judge-free.** Two
-  judge metrics is the ceiling, and they go where nothing deterministic can
-  answer the question — whether an answer is grounded in what was retrieved, for
-  instance. Exceed the two only if the user explicitly asks for more judged
-  scoring.
-- A judge-free metric only counts if it can actually fail. `PatternMatchMetric`
-  needs a `pattern` that a wrong answer would miss, `JsonCorrectnessMetric` a
-  schema the output really claims to satisfy, `ExactMatchMetric` an answer that
-  is genuinely exact, `ToolCorrectnessMetric` the tools a golden knows should
-  fire. Never write a pattern that matches everything or guess an expected
-  output to fill the quota: a metric that always passes is worse than a missing
-  one.
-- If the application cannot support three of them — free-text answers, no tools,
-  no structured output — take the judge-free metrics it does support, keep the
-  judge metrics at two, and record the shortfall in `errors` saying why.
-- With no judge configured, every metric is judge-free, and say so in `errors`.
-- Spread the five across the components on the path from request to answer, so
-  each one carries at least one metric and no component is stacked with three.
-  Retrieval quality belongs on the retriever, never on the generator.
-- One list per component, named after it: `RETRIEVER_SPAN_METRICS`,
-  `GENERATOR_SPAN_METRICS`, `ORDER_LOOKUP_TOOL_SPAN_METRICS`. Never one shared
-  list, and never the same metric on two components.
-- At most one of the five sits on the trace, and only when it judges something
-  the span metrics cannot. Trace metrics never replace component metrics.
-- Set `threshold` explicitly on every metric. The judge metrics default to `0.5`;
-  use `0.7` unless the repository already sets one. The judge-free ones are pass
-  or fail and keep their own default of `1`.
-- One of the two judge slots usually goes to a `GEval`, because a product's idea
-  of a good answer is rarely a built-in metric. There is no generic correctness
-  metric — correctness depends on the task — so write one named for what this
-  application owes its user, with the criterion in its own words.
+**Judge metrics are the point when a judge is available.** With a judge
+configured, every metric should be a judge metric, and about three of them
+`GEval`s written for this product. Judged scoring is what makes an evaluation say
+something a unit test could not, so do not trade it away for cheapness the user
+did not ask for.
+
+**Judge-free metrics are the fallback, not the default.** With no judge
+configured the suite is judge-free in full and `errors` says so. A judge-free
+metric still has to be able to fail: `PatternMatchMetric`
+needs a `pattern` a wrong answer would miss, `JsonCorrectnessMetric` a schema the
+output really claims to satisfy, `ExactMatchMetric` an answer that is genuinely
+exact, `ToolCorrectnessMetric` the tools a golden knows should fire. Never write a
+pattern that matches everything to fill a slot; report the shortfall instead.
+
+The rest of the rules:
+
+- Write around three `GEval`s, because a product's idea of a good answer is
+  rarely a built-in metric. There is no generic correctness metric — correctness
+  depends on the task — so name each one for something this application owes its
+  user and put the criterion in its own words.
   `GEval(name="Correctness", criteria="...", evaluation_params=[SingleTurnParams.INPUT, SingleTurnParams.ACTUAL_OUTPUT], threshold=0.7)`
   in Python, `new GEval({ name, criteria, evaluationParams: [...], threshold: 0.7 })`
   in TypeScript, with `SingleTurnParams` imported from the test-case module. List
-  only fields the span will actually carry, and prefer input and output over the
+  only fields the span will actually carry, preferring input and output over the
   reference fields unless your goldens really supply them. Reach for `DAGMetric`
   only when the score has to follow explicit branches rather than a judgment.
+- The trace's other two metrics judge the run as a whole: `GEval` for what the
+  product promises, or `StepEfficiencyMetric` and `PlanAdherenceMetric` when the
+  trajectory rather than the answer is what you doubt.
+- Each span's one or two metrics are that component's own failure modes, and
+  retrieval quality belongs on the retriever, never on the generator. A component
+  whose output nothing can meaningfully judge gets no metric rather than a
+  padded one.
+- One list per component, named after it: `RETRIEVER_SPAN_METRICS`,
+  `GENERATOR_SPAN_METRICS`, `ORDER_LOOKUP_TOOL_SPAN_METRICS`. Never one shared
+  list, and never the same metric on two components.
+- Set `threshold` explicitly on every metric. Judge metrics default to `0.5`; use
+  `0.7` unless the repository already sets one. Judge-free metrics are pass or
+  fail and keep their own default of `1`.
 
-The application's shape from step 1 decides the rest. Take the second judge slot
-from the middle column, and look for the judge-free three in the right one:
+The application's shape from step 1 says which span metrics to start from:
 
-| Application    | The other judge slot                                                                     | Judge-free candidates                                                       |
-| -------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| RAG            | `FaithfulnessMetric` on the generator, or `ContextualRelevancyMetric` on the retriever   | a `PatternMatchMetric` for a citation or figure the answer must carry       |
-| Agent or tools | `TaskCompletionMetric`, or `StepEfficiencyMetric` when the trajectory is what you doubt  | `ToolCorrectnessMetric` on the agent span, where the goldens know the tools |
-| Plain LLM      | `AnswerRelevancyMetric`                                                                  | `JsonCorrectnessMetric` or `ExactMatchMetric` when the output is structured |
-| Multi-turn     | conversational metrics only, per [Single-turn or multi-turn](#single-turn-or-multi-turn) | —                                                                           |
+| Application    | Span metrics to start from                                                                                       |
+| -------------- | ---------------------------------------------------------------------------------------------------------------- |
+| RAG            | `ContextualRelevancyMetric` on the retriever, `FaithfulnessMetric` and `AnswerRelevancyMetric` on the generator  |
+| Agent or tools | `ArgumentCorrectnessMetric` on the agent span, `ToolCorrectnessMetric` where the goldens know the expected tools |
+| Plain LLM      | `AnswerRelevancyMetric` on the one `llm` span, plus a `GEval` for what the product promises                      |
+| Multi-turn     | conversational metrics only, per [Single-turn or multi-turn](#single-turn-or-multi-turn)                         |
 
 ## Step 5 — Instrument, and report each span's own fields
 
@@ -367,8 +374,8 @@ report, so read the summary and name every skip and error in `errors`, and repor
 also uploads the test run, and the `testRunId` you report must come from this one
 run.
 
-Run every metric when model-backed runs are consented to, otherwise the
-judge-free ones alone. Finishing without running it is not an acceptable outcome.
+Run every metric in the suite, judge metrics included. Finishing without running
+it is not an acceptable outcome.
 
 One run, and one only. Once the command has scored the goldens, that run is the
 result: a low score is a finding to report, never a reason to run it again with
@@ -462,9 +469,11 @@ project's dependencies:
 3. Build one `LLMTestCase` per golden from the answer that comes back, filling
    only the fields the application actually returns.
 4. Score them in one pass with `evaluate(test_cases=..., metrics=...)` plus an
-   identifier, under the same budget as step 4: five metrics, at least three of
-   them judge-free, chosen from the table there and limited to those whose fields
-   these test cases actually carry.
+   identifier, using the black-box budget from step 4: five metrics, judge
+   metrics with about three `GEval`s when a judge is available, and limited to
+   those whose fields these test cases actually carry. `TaskCompletionMetric` is
+   required of component suites, not this one, since there is no trace to put it
+   on.
 5. Keep the script and its metrics module together, in the project's existing
    evaluation directory or in `evals/` as `evaluate_<app>.py`, `metrics.py`, and
    `.dataset.json`. The documented rerun command is that script run by the Python
@@ -502,11 +511,12 @@ in `sdks`. Allowed levels are `test-case`, `span`, `trace`, and `thread`.
 are always required.
 
 `shape` is `component-level` or `black-box`, and it decides what `levels` may
-say. A `component-level` result other than `failed` must list `span`: a suite
-with no component metrics is not the evaluation this asked for, so report
-`failed` with the reason rather than a run without them. A `black-box` result
-must not list `span`, and belongs only to an application in a language neither
-SDK covers. `shape` defaults to `component-level` when omitted.
+say. A `component-level` result other than `failed` must list both `span` and
+`trace`, because that shape scores components and scores the run as a whole; a
+suite missing either is not the evaluation this asked for, so report `failed` with
+the reason rather than a run without them. A `black-box` result must not list
+`span`, and belongs only to an application in a language neither SDK covers.
+`shape` defaults to `component-level` when omitted.
 
 A completed result requires `testRunId` when Confident AI is configured; omit
 `testRunId` and `testRunUrl` for a local-only run. A failed result requires at

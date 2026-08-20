@@ -45,7 +45,10 @@ npm run build
   spans they judge and any end-to-end metric inside that same suite, and the
   evaluation runs exactly once, since exploratory runs spend judge money and
   each one that reaches Confident AI creates another test run. A suite that
-  reports no span level is a failure, enforced by `src/result.ts`.
+  reports no span level is a failure, enforced by `src/result.ts`. That
+  contract runs after the suite has already spent judge money, so a result it
+  rejects is reported as unverified with its test run and rerun command
+  salvaged, never raised as a wizard failure that discards both.
 - Follow the `deepeval` skill's recommendations by default — three to five
   metrics, a `GEval` for whatever the product means by a good answer, metric
   lists in their own module named after the component they score, the
@@ -74,14 +77,19 @@ npm run build
   package rather than translating one language into the other, since the
   surfaces genuinely differ: synthetic generation, `AsyncConfig`, `CacheConfig`,
   and LiteLLM are Python-only, and `evalsIterator` is async-only.
-- A suite is five metrics, at least three of them judge-free, and never more
-  than two judge metrics unless the user asks for more, because judge metrics
-  are the ones that spend money and need a provider key. Verify a metric really
-  is judge-free before listing it as one: `ExactMatchMetric`,
-  `PatternMatchMetric`, `JsonCorrectnessMetric`, and `ToolCorrectnessMetric`
-  score by comparison or validation, though the last two still resolve a model
-  they never ask to score. A quota is never a reason to ship a metric that
-  cannot fail, so the prompt lets the count fall short and say why instead.
+- A component suite is three metrics on the trace, one of which must be
+  `TaskCompletionMetric`, plus one or two on each span worth scoring, so its size
+  follows the component map; a black-box suite is five metrics. Twelve is the
+  ceiling either way, matching `src/result.ts`. Judge metrics are the default
+  whenever a judge is configured, roughly three of them `GEval`s, since judged
+  scoring is what the evaluation is for. Configuring a judge is itself the
+  agreement to spend on it, so never reintroduce a prompt offering a
+  judge-free-only run: it buys nothing and costs the evaluation its point. Judge-free metrics are the
+  no-judge fallback, not a cost saving: `ExactMatchMetric`, `PatternMatchMetric`,
+  `JsonCorrectnessMetric`, and `ToolCorrectnessMetric` score by comparison or
+  validation, though the last two still resolve a model they never ask to score.
+  A slot is never a reason to ship a metric that cannot fail, so the prompt lets
+  the count fall short and say why instead.
 - The evaluation runs once and is never repeated, not even to check a fix: a low
   score is a finding to report. Only a command that failed before any metric
   scored may be issued again, once. The agent then closes with a short report —

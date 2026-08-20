@@ -12,7 +12,7 @@ const describeJudge = (provider: JudgeProvider | undefined): string =>
       ).join(
         ", ",
       )} in the project dotenv. Let DeepEval read it; never open or echo those values.`
-    : "- Judge model: none configured. Use deterministic metrics only and do not add LLM-judge metrics.";
+    : "- Judge model: none configured. Use judge-free metrics only and do not add LLM-judge metrics.";
 
 const describeCloud = (useConfidentAi: boolean): string =>
   useConfidentAi
@@ -41,7 +41,6 @@ const describeSdk = (target: EvaluationTarget | undefined): string =>
 export const buildAgentPrompt = (
   projectDirectory: string,
   resultFile: string,
-  paidModelRunConsent?: boolean,
   judge: { provider?: JudgeProvider } = {},
   useConfidentAi = true,
   target?: EvaluationTarget,
@@ -53,7 +52,6 @@ Runtime context:
 - Structured result destination: ${resultFile}
 ${describeSdk(target)}${describeJudge(judge.provider)}
 ${describeCloud(useConfidentAi)}
-${paidModelRunConsent === undefined ? "" : `- User consent for model-backed evaluation runs: ${paidModelRunConsent ? "granted" : "not granted"}\n`}
 
 Work only in the project directory. The destination path is supplied for
 clarity, but write it through CONFIDENT_SETUP_RESULT_FILE.`;
