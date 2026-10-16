@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   classifyErrorCode,
+  FINAL_STEP,
   redactTelemetry,
   SetupTelemetry,
 } from "../src/telemetry.js";
@@ -79,7 +80,7 @@ describe("telemetry redaction", () => {
 
     await telemetry.send({
       event: "setup_completed",
-      step: "evaluation",
+      step: FINAL_STEP,
       result: "succeeded",
     });
 
@@ -91,5 +92,28 @@ describe("telemetry redaction", () => {
         }),
       }),
     );
+  });
+
+  /** The backend has no tracing step yet, so only existing wire values go out. */
+  it("ends on a step the backend contract already knows", async () => {
+    expect(FINAL_STEP).toBe("evaluation");
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(new Response(null, { status: 202 }));
+    const telemetry = new SetupTelemetry("https://api.example", {
+      fetch,
+      disabled: false,
+    });
+    telemetry.setTelemetryToken("telemetry-token");
+    await telemetry.send({
+      event: "setup_completed",
+      step: FINAL_STEP,
+      result: "succeeded",
+    });
+    expect(JSON.parse(String(fetch.mock.calls[0]![1]!.body))).toEqual({
+      event: "setup_completed",
+      step: "evaluation",
+      result: "succeeded",
+    });
   });
 });

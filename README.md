@@ -1,34 +1,22 @@
 # Confident Setup Wizard
 
-Interactive setup for a focused, rerunnable Confident AI evaluation powered by
-DeepEval. The wizard pairs through the browser, creates a project API key, and
-helps a coding agent build and run a component-level evaluation, in Python or
-TypeScript, whichever the project is written in.
+Interactive setup that adds Confident AI tracing to your AI app. The wizard
+signs you in through the browser, saves a project API key, has a coding agent
+add [`confident-trace`](https://github.com/confident-ai/confident-trace) to your
+app and run it once, then confirms the first trace reached Confident AI.
 
 ## Run
 
-Run the checksum-verified standalone release from an interactive terminal.
-
-From Confident AI:
+Run the checksum-verified standalone release from an interactive terminal:
 
 ```sh
 curl -fsSL "https://www.confident-ai.com/setup.sh" | sh
 ```
 
-From DeepEval (asks whether to use Confident AI first):
-
-```sh
-curl -fsSL "https://deepeval.com/setup.sh" | sh
-```
-
-Answering yes signs in, saves a project API key, and verifies the run in the
-cloud. Answering no skips those steps and still sets up a local DeepEval
-evaluation.
-
 Options:
 
 ```text
---from <source>        Setup entry point (deepeval asks first; default: direct)
+--from <source>        Where setup was launched from (default: direct)
 --project-dir <path>   Project directory (default: current directory)
 --app-url <url>        Confident app URL
 --api-url <url>        Confident API URL
@@ -41,79 +29,61 @@ The default services are `https://app.confident-ai.com` and
 
 ## What it does
 
-The wizard runs six labeled steps and shows the whole route up front. Before
+The wizard runs five labeled steps and shows the whole route up front. Before
 step one it checks Git and asks explicitly before continuing in a dirty or
-non-Git directory, then looks for DeepEval itself. DeepEval ships one SDK per
-language, so the search covers both: for Python, the active virtual environment,
-the project's Poetry or uv environment, its `.venv`, and the `python3` on
-`PATH`, in that order; for TypeScript, the package the project's own manager
-would have installed. When nothing has it, the wizard offers to install DeepEval
-where the evaluation will run, using that project's package manager — npm, pnpm,
-Yarn, or Bun, taken from the `packageManager` field or the lockfile. A
-repository holding both languages is asked which one to evaluate, since only its
-owner knows. The exact command is shown first and requires confirmation, a
-system interpreter is never an install target, and declining only warns. The
-answer also tells the agent which SDK to instrument with. A project in neither
-language is told so up front: DeepEval cannot instrument it, so the evaluation
-becomes a standalone Python script that calls the application the way its users
-do and scores test cases built from goldens, and DeepEval is installed as a
-harness rather than as one of the project's own dependencies. A DeepEval user who
-declines Confident AI skips the first three steps, then still sets the judge
-model, adds the evaluation, and runs it locally.
+non-Git directory.
 
-1. Opens browser device pairing and retrieves onboarding state from Confident
-   AI.
-2. Validates or selects a project and creates a project-scoped API key.
-3. Safely merges `CONFIDENT_API_KEY` into `.env.local`, sets mode `0600`, and
-   ensures the file is ignored by Git.
-4. Sets up the judge model that powers LLM metrics, covering every provider
-   DeepEval's `initialize_model` can select: OpenAI, Anthropic, Gemini, Azure
-   OpenAI, Bedrock, OpenRouter, DeepSeek, Grok, Moonshot, LiteLLM, Portkey,
-   Ollama, and any OpenAI-compatible local server. Keys already in the
-   environment or `.env.local` are detected the way DeepEval resolves them and
-   offered for reuse, including a key whose `USE_*` flag is not set yet. Keys
-   are entered masked and merged into the same `.env.local`, along with the
-   provider flag and only the settings DeepEval has no default for. Credentials
-   DeepEval can infer are never demanded: Bedrock can use your AWS credential
-   chain, Gemini on Vertex AI needs no key, and LiteLLM reuses an upstream one.
-   Both SDKs read the same `USE_*` flags out of the same `.env.local`, so this
-   step is language-independent, with LiteLLM the one provider the TypeScript
-   SDK cannot serve. Skipping is allowed, and restricts the evaluation to the
-   metrics that score by comparison rather than by a model.
-5. Offers three ways to add the evaluation:
+If the project already has a `CONFIDENT_API_KEY`, in the shell environment or in
+`.env.local`, the wizard offers to reuse it instead of creating another key. It
+checks the key with one read of the trace list, then skips steps one to three
+and writes nothing. A key Confident AI rejects falls back to signing in. With
+`--proj-id`, the key is reused only when Confident AI confirms it belongs to that
+project. A reused key's project is unknown to the wizard, so the final trace link
+points at the app and names the trace ID instead of opening the trace directly.
+
+1. **Sign in.** Opens browser device pairing and retrieves onboarding state from
+   Confident AI.
+2. **Choose project.** Validates or selects a project and creates a
+   project-scoped API key.
+3. **Save credentials.** Safely merges `CONFIDENT_API_KEY` into `.env.local`,
+   sets mode `0600`, and makes sure Git ignores the file.
+4. **Choose how to add tracing.**
    - a detected coding agent, named in the prompt when Claude Code, Codex, or
      Cursor CLI is installed and authenticated;
    - a prompt you paste into your own coding agent;
-   - manual setup using the
-     [evaluation quickstart](https://www.confident-ai.com/docs/llm-evaluation/quickstart),
-     or the [DeepEval docs](https://deepeval.com/docs/getting-started) for a
-     local-only run.
-6. Runs the evaluation, validates the agent's structured result, and verifies
-   its test run with the Confident API. A component-level result that reports no
-   span or no trace level is rejected, since that shape scores each component and
-   the run as a whole, and a black-box result cannot claim spans it had no way to
-   produce. Configuring a judge is the agreement to use it, so the run is not
-   gated behind a second question about provider usage; the evaluation runs
-   exactly once, ending in a short report of what it found.
+   - the [tracing quickstart](https://www.confident-ai.com/docs/llm-tracing/quickstart),
+     followed by hand.
+5. **Run your app and confirm the first trace.** The agent installs
+   `confident-trace` with the project's own package manager, prefers its
+   automatic integrations, adds manual spans only where they do not reach, and
+   runs the smallest real entry point once with test data. Python and
+   TypeScript use `confident-trace`; any other language exports through its own
+   OpenTelemetry SDK over OTLP/HTTP. The wizard validates the agent's structured
+   result, then polls Confident AI's trace list for up to three minutes and links
+   the first trace it finds.
+
+When the agent cannot run the app, for example because a provider key or a
+database is missing, it says what is needed and the exact command to run. The
+wizard shows both and waits until you have run it before checking for the
+trace.
 
 Detected agents first pass executable discovery, authentication, and read-only
 smoke checks (Claude plan mode, the Codex read-only sandbox, Cursor ask mode).
 The wizard then shows a separate warning and asks again before starting
 full-permission execution.
 
-If verification fails, the wizard reports why and keeps the generated
-evaluation and credentials in place instead of discarding the run.
+If the run or the trace check fails, the wizard keeps the instrumentation and
+credentials in place and prints the run command, the traces link, and the
+[troubleshooting guide](https://www.confident-ai.com/docs/llm-tracing/troubleshooting).
 
 ## Security
 
 - API keys are never included in prompts, telemetry, command arguments, or
-  result files.
-- Judge-model keys are typed into a masked prompt, written only to `.env.local`,
-  and named in the agent prompt by environment variable, never by value.
+  result files, and the wizard never prints one.
 - Built-in agents receive the key only through their child-process environment.
-- Other setup modes let DeepEval load the key from the ignored `.env.local`
-  without exposing its value to the agent prompt.
-- The canonical prompt forbids reading `.env.local`.
+- In the other setup modes, the run command loads the key from the ignored
+  `.env.local`, so its value never enters the agent prompt.
+- The canonical prompt forbids reading `.env.local` and hardcoding the key.
 - Setup telemetry is best-effort, redacted, contains no secrets, and never
   blocks setup. Disable it with `CONFIDENT_TELEMETRY_DISABLED=1`.
 - The wizard does not commit or push.
@@ -126,7 +96,7 @@ npm run check
 npm run build
 ```
 
-`src/prompt.ts` imports `prompts/evaluation.md` as text, which only the bundler
+`src/prompt.ts` imports `prompts/tracing.md` as text, which only the bundler
 resolves, so run the built CLI rather than the TypeScript entry point:
 
 ```sh
@@ -138,10 +108,9 @@ project exists at `examples/agent-sandbox`, `npm run wizard:sandbox` points the
 built CLI at it; otherwise pass `--project-dir` to any throwaway folder.
 
 `npm run build:sea` creates a Node Single Executable Application in `release/`.
-Tagged releases build darwin/linux x64/arm64 archives and `SHA256SUMS`.
-Both install scripts are served by the sites themselves, from the
-`confident-landing` and `deepeval` repositories, and download those archives.
-The DeepEval entry passes `--from deepeval`, so keep the two copies in sync.
+Tagged releases build darwin/linux x64/arm64 archives and `SHA256SUMS`. The
+install script is served by confident-ai.com from the `confident-landing`
+repository and downloads those archives.
 
 ## License
 

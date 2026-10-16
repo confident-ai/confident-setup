@@ -60,8 +60,6 @@ describe("themed clack logs", () => {
   it("saves brand violet for the Confident AI name", async () => {
     const { stepHeading, welcomeMessage } = await importThemeWithColor();
     expect(welcomeMessage()).toContain(BRAND);
-    expect(welcomeMessage(false)).not.toContain(BRAND);
-    expect(welcomeMessage(false)).toContain(ACCENT);
     expect(stepHeading(1)).toContain(ACCENT);
     expect(stepHeading(1)).not.toContain(BRAND);
   });

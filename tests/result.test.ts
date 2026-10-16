@@ -8,90 +8,75 @@ import { parseSetupResult, readSetupResult } from "../src/result.js";
 
 const validResult = {
   status: "completed",
-  changedFiles: ["evals/evaluate.py"],
-  sdks: ["deepeval-python"],
-  levels: ["test-case", "span", "trace"],
-  datasetSource: "Existing support examples",
-  metrics: ["Answer relevancy", "Tool correctness", "Task completion"],
-  rerunCommand: "python evals/evaluate.py",
-  testRunId: "run-123",
+  changedFiles: ["app/main.py", "pyproject.toml"],
+  sdks: ["confident-trace-python"],
+  integrations: ["OpenAI"],
+  runCommand: "uv run --env-file .env.local python app/main.py",
+  runSucceeded: true,
 };
 
 describe("setup result validation", () => {
   it("accepts a complete structured result", () => {
-    expect(parseSetupResult(validResult)).toEqual({
-      ...validResult,
-      shape: "component-level",
-    });
+    expect(parseSetupResult(validResult)).toEqual(validResult);
   });
 
-  it("requires a run ID for completed cloud setup", () => {
+  it("requires a completed setup to have run the app", () => {
     expect(() =>
-      parseSetupResult({ ...validResult, testRunId: undefined }),
-    ).toThrow("completed setup");
+      parseSetupResult({ ...validResult, runSucceeded: false }),
+    ).toThrow("must have run the app");
   });
 
-  it("allows a completed local setup without a run ID", () => {
+  it("requires a partial setup to say what the user must provide", () => {
+    const partial = { ...validResult, status: "partial", runSucceeded: false };
+    expect(() => parseSetupResult(partial)).toThrow("needsFromUser");
+    expect(() => parseSetupResult({ ...partial, needsFromUser: [] })).toThrow(
+      "must say what the user needs",
+    );
     expect(
-      parseSetupResult(
-        {
-          status: "completed",
-          changedFiles: validResult.changedFiles,
-          sdks: validResult.sdks,
-          levels: validResult.levels,
-          datasetSource: validResult.datasetSource,
-          metrics: validResult.metrics,
-          rerunCommand: validResult.rerunCommand,
-        },
-        false,
-      ),
-    ).toMatchObject({
-      status: "completed",
-    });
+      parseSetupResult({ ...partial, needsFromUser: ["Set OPENAI_API_KEY"] }),
+    ).toMatchObject({ status: "partial" });
   });
 
-  it("rejects a suite that evaluated no component", () => {
+  it("rejects a partial setup that claims the app ran", () => {
     expect(() =>
-      parseSetupResult({ ...validResult, levels: ["test-case", "trace"] }),
-    ).toThrow("must report the span level");
+      parseSetupResult({
+        ...validResult,
+        status: "partial",
+        needsFromUser: ["Start the database"],
+      }),
+    ).toThrow("did not run the app");
   });
 
-  /** Task completion lives on the trace, so a component suite always has one. */
-  it("rejects a component suite that scored nothing run-wide", () => {
-    expect(() =>
-      parseSetupResult({ ...validResult, levels: ["test-case", "span"] }),
-    ).toThrow("must report the trace level");
+  it("requires an SDK and a run command unless setup failed", () => {
+    expect(() => parseSetupResult({ ...validResult, sdks: [] })).toThrow(
+      "at least one SDK",
+    );
+    expect(() => parseSetupResult({ ...validResult, runCommand: " " })).toThrow(
+      "command that runs the app",
+    );
   });
 
-  it("accepts a black-box run that had no spans to score", () => {
+  it("accepts every SDK the prompt names, and only those", () => {
     expect(
       parseSetupResult({
         ...validResult,
-        shape: "black-box",
-        levels: ["test-case"],
-        rerunCommand: ".venv/bin/python evals/evaluate_app.py",
-      }),
-    ).toMatchObject({ shape: "black-box" });
-  });
-
-  it("rejects a black-box run that claims spans", () => {
+        sdks: ["confident-trace-typescript", "opentelemetry"],
+      }).sdks,
+    ).toHaveLength(2);
     expect(() =>
-      parseSetupResult({ ...validResult, shape: "black-box" }),
-    ).toThrow("cannot report the span level");
+      parseSetupResult({ ...validResult, sdks: ["some-other-sdk"] }),
+    ).toThrow();
   });
 
-  it("defaults to the component-level shape", () => {
-    expect(parseSetupResult(validResult).shape).toBe("component-level");
-  });
-
-  it("lets a failure report the levels it never reached", () => {
+  it("lets a failure leave the SDK list and run command empty", () => {
     expect(
       parseSetupResult({
         ...validResult,
         status: "failed",
-        levels: ["test-case"],
-        testRunId: undefined,
-        errors: ["No component could be observed."],
+        sdks: [],
+        runCommand: "",
+        runSucceeded: false,
+        errors: ["The project needs Python 3.10 or newer; found 3.8."],
       }),
     ).toMatchObject({ status: "failed" });
   });
@@ -101,7 +86,7 @@ describe("setup result validation", () => {
       parseSetupResult({
         ...validResult,
         status: "failed",
-        testRunId: undefined,
+        runSucceeded: false,
       }),
     ).toThrow("failed setup");
     expect(() =>
@@ -131,22 +116,44 @@ describe("reading a setup result file", () => {
   });
 
   /**
-   * The suite has already run and spent judge money by now, so a rejected file
-   * must still surrender the test run and the command that reruns it.
+   * The agent has already changed the project by now, so a rejected file must
+   * still surrender the command that runs the app and the files it touched.
    */
-  it("keeps the test run and rerun command from a rejected result", async () => {
+  it("keeps the run command and changed files from a rejected result", async () => {
     const outcome = await readSetupResult(
-      await writeResultFile({ ...validResult, levels: ["test-case"] }),
+      await writeResultFile({ ...validResult, runSucceeded: false }),
     );
     expect(outcome.ok).toBe(false);
     if (outcome.ok) return;
     expect(outcome.rejected.issues.join("\n")).toContain(
-      "must report the span level",
+      "must have run the app",
     );
-    expect(outcome.rejected.salvaged).toMatchObject({
-      rerunCommand: validResult.rerunCommand,
-      testRunId: validResult.testRunId,
+    expect(outcome.rejected.salvaged).toEqual({
+      runCommand: validResult.runCommand,
+      changedFiles: validResult.changedFiles,
     });
+  });
+
+  it("salvages nothing beyond those two fields", async () => {
+    const outcome = await readSetupResult(
+      await writeResultFile({ ...validResult, apiKey: "confident_us_secret" }),
+    );
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.rejected.issues.join("\n")).toContain("apiKey");
+    expect(outcome.rejected.salvaged).toEqual({
+      runCommand: validResult.runCommand,
+      changedFiles: validResult.changedFiles,
+    });
+  });
+
+  it("salvages each field on its own", async () => {
+    const outcome = await readSetupResult(
+      await writeResultFile({ runCommand: "node app.js", changedFiles: "x" }),
+    );
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.rejected.salvaged).toEqual({ runCommand: "node app.js" });
   });
 
   it("reports unreadable JSON without salvaging anything", async () => {

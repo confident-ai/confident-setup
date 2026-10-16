@@ -1,7 +1,7 @@
 {
   "name": "confident-setup",
   "version": "0.2.0",
-  "description": "Interactive Confident AI evaluation setup wizard",
+  "description": "Interactive Confident AI tracing setup wizard",
   "type": "module",
   "bin": {
     "confident-setup": "./dist/cli.js"
@@ -25,8 +25,9 @@
   },
   "keywords": [
     "confident-ai",
-    "deepeval",
-    "evaluation",
+    "tracing",
+    "observability",
+    "opentelemetry",
     "cli"
   ],
   "license": "MIT",

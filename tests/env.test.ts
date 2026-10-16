@@ -39,15 +39,12 @@ describe("environment merge", () => {
     ).toBe('OTHER=1\nCONFIDENT_API_KEY="new value"\n');
   });
 
-  it("adds judge-model settings without disturbing the project key", () => {
+  it("adds new keys without disturbing existing ones", () => {
     expect(
-      mergeEnvContent('CONFIDENT_API_KEY="confident"\n', {
-        USE_ANTHROPIC_MODEL: "true",
-        ANTHROPIC_API_KEY: "judge",
+      mergeEnvContent('OPENAI_API_KEY="provider"\n', {
+        CONFIDENT_API_KEY: "confident",
       }),
-    ).toBe(
-      'CONFIDENT_API_KEY="confident"\n\nUSE_ANTHROPIC_MODEL="true"\nANTHROPIC_API_KEY="judge"\n',
-    );
+    ).toBe('OPENAI_API_KEY="provider"\n\nCONFIDENT_API_KEY="confident"\n');
   });
 
   it("atomically writes a mode-0600 file", async () => {
@@ -65,7 +62,7 @@ describe("environment merge", () => {
 });
 
 describe("environment parse", () => {
-  it("reads the quoting and export forms DeepEval accepts", () => {
+  it("reads the quoting and export forms dotenv loaders accept", () => {
     expect(
       parseEnvContent(
         [

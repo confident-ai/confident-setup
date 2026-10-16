@@ -11,20 +11,20 @@ describe("agent progress rendering", () => {
           {
             type: "tool_use",
             name: "Edit",
-            input: { file_path: "/repo/evals/smoke.py" },
+            input: { file_path: "/repo/app/main.py" },
           },
           {
             type: "tool_use",
             name: "Bash",
-            input: { command: "python -m pytest evals" },
+            input: { command: "uv run python app/main.py" },
           },
         ],
       },
     });
 
     expect(parseAgentProgressLine("claude", line, "/repo")).toEqual([
-      "edit: evals/smoke.py",
-      "run: python -m pytest evals",
+      "edit: app/main.py",
+      "run: uv run python app/main.py",
     ]);
   });
 
@@ -54,10 +54,10 @@ describe("agent progress rendering", () => {
     expect(
       parseAgentProgressLine(
         "cursor",
-        started({ editToolCall: { args: { path: "/repo/evals/smoke.py" } } }),
+        started({ editToolCall: { args: { path: "/repo/app/main.py" } } }),
         "/repo",
       ),
-    ).toEqual(["edit: evals/smoke.py"]);
+    ).toEqual(["edit: app/main.py"]);
     expect(
       parseAgentProgressLine(
         "cursor",
@@ -68,10 +68,10 @@ describe("agent progress rendering", () => {
     expect(
       parseAgentProgressLine(
         "cursor",
-        started({ grepToolCall: { args: { pattern: "AnswerRelevancy" } } }),
+        started({ grepToolCall: { args: { pattern: "confident_trace" } } }),
         "/repo",
       ),
-    ).toEqual(["read: AnswerRelevancy"]);
+    ).toEqual(["read: confident_trace"]);
   });
 
   it("reports a Cursor tool call once, not again on completion", () => {

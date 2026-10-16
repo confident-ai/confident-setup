@@ -8,11 +8,12 @@ export interface DetectedAgentOption {
 export const GITHUB_ISSUE_URL =
   "https://github.com/confident-ai/confident-setup/issues/new";
 export const SUPPORT_URL = "https://www.confident-ai.com/contact";
-export const EVALUATION_DOCS_URL =
-  "https://www.confident-ai.com/docs/llm-evaluation";
-export const MANUAL_QUICKSTART_URL =
-  "https://www.confident-ai.com/docs/llm-evaluation/quickstart";
-export const DEEPEVAL_DOCS_URL = "https://deepeval.com/docs/getting-started";
+export const TRACING_DOCS_URL =
+  "https://www.confident-ai.com/docs/llm-tracing/introduction";
+export const TRACING_QUICKSTART_URL =
+  "https://www.confident-ai.com/docs/llm-tracing/quickstart";
+export const TRACING_TROUBLESHOOTING_URL =
+  "https://www.confident-ai.com/docs/llm-tracing/troubleshooting";
 
 /** "A or B", "A, B, or C" — as many agents as the machine has installed. */
 export const listLabels = (
@@ -55,8 +56,8 @@ export const setupModeOptions = (
     },
     {
       value: "manual",
-      label: "Follow the DeepEval docs yourself",
-      hint: "Open the evaluation quickstart and wire DeepEval up manually",
+      label: "Add tracing yourself",
+      hint: "Open the tracing quickstart and follow it",
     },
   ];
 };
@@ -78,18 +79,12 @@ export const promptDeliveryOptions: Array<{
   },
 ];
 
-export const judgeSkipWarning =
-  "No judge model configured, so LLM-judge metrics cannot run. The evaluation will stick to deterministic metrics. Add a provider key to .env.local later and rerun the evaluation to enable them.";
-
 export const fullPermissionWarning = (agentLabel: string): string =>
   `${agentLabel} will be given full permission to edit files and run commands in this project. Review its output and the resulting diff. No commits or pushes are requested.`;
 
 export const deferredSetupMessage = (
   mode: Exclude<SetupMode, "built-in">,
-  useConfidentAi = true,
 ): string =>
   mode === "manual"
-    ? `Finish the evaluation later with ${
-        useConfidentAi ? MANUAL_QUICKSTART_URL : DEEPEVAL_DOCS_URL
-      }`
-    : "Paste the supplied prompt into your coding agent. Return here after it finishes.";
+    ? `Finish adding tracing with ${TRACING_QUICKSTART_URL}, then run your app.`
+    : "When your agent finishes, run your app with the command it reports.";
