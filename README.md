@@ -1,11 +1,22 @@
-# Confident Setup Wizard
+<img src="assets/confident-setup-banner-radial-4s.svg" alt="Confident Setup — a luminous gateway opening onto a golden path beneath the stars" width="100%" />
 
-Interactive setup that adds Confident AI tracing to your AI app. The wizard
-signs you in through the browser, saves a project API key, has a coding agent
-add [`confident-trace`](https://github.com/confident-ai/confident-trace) to your
-app and run it once, then confirms the first trace reached Confident AI.
+# `confident-setup`: Your First AI Trace
 
-## Run
+Confident Setup takes your AI application from setup to its first trace in
+Confident AI. Sign in, choose a project, and let a coding agent add tracing and
+run your app. The wizard confirms the trace arrived and shows you where to find it.
+
+- **Tracing for your stack:** Python and TypeScript use
+  [`confident-trace`](https://github.com/confident-ai/confident-trace). Other
+  languages use their own OpenTelemetry SDK over OTLP/HTTP.
+- **Choose how to set up:** use Claude Code, Codex, or Cursor CLI, copy a prompt
+  into your own coding agent, or follow the tracing quickstart by hand.
+- **Reuse your credentials:** an existing `CONFIDENT_API_KEY` can skip sign-in
+  and key creation after validation.
+- **Confirm the first trace:** run your app once, check that Confident AI received
+  it, and get the next steps if anything is missing.
+
+## Quickstart
 
 Run the checksum-verified standalone release from an interactive terminal:
 
@@ -13,21 +24,10 @@ Run the checksum-verified standalone release from an interactive terminal:
 curl -fsSL "https://www.confident-ai.com/setup.sh" | sh
 ```
 
-Options:
+Run from your application's directory. The wizard checks your Git state and
+asks before starting a coding agent with full permissions.
 
-```text
---from <source>        Where setup was launched from (default: direct)
---project-dir <path>   Project directory (default: current directory)
---app-url <url>        Confident app URL
---api-url <url>        Confident API URL
---org-id <id>          Require this organization
---proj-id <id>         Select this project
-```
-
-The default services are `https://app.confident-ai.com` and
-`https://api.confident-ai.com`.
-
-## What it does
+## How it works
 
 The wizard runs five labeled steps and shows the whole route up front. Before
 step one it checks Git and asks explicitly before continuing in a dirty or
@@ -76,6 +76,20 @@ If the run or the trace check fails, the wizard keeps the instrumentation and
 credentials in place and prints the run command, the traces link, and the
 [troubleshooting guide](https://www.confident-ai.com/docs/llm-tracing/troubleshooting).
 
+## CLI options
+
+```text
+--from <source>        Where setup was launched from (default: direct)
+--project-dir <path>   Project directory (default: current directory)
+--app-url <url>        Confident app URL
+--api-url <url>        Confident API URL
+--org-id <id>          Require this organization
+--proj-id <id>         Select this project
+```
+
+The default services are `https://app.confident-ai.com` and
+`https://api.confident-ai.com`.
+
 ## Security
 
 - API keys are never included in prompts, telemetry, command arguments, or
@@ -114,4 +128,4 @@ repository and downloads those archives.
 
 ## License
 
-MIT
+[MIT](LICENSE).
