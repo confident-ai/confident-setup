@@ -20,9 +20,6 @@ const sourceSchema = z
   .max(64)
   .regex(/^[a-zA-Z0-9_-]+$/);
 
-export const requiresConfidentOptIn = (from: string): boolean =>
-  from === "deepeval";
-
 const requireValue = (argv: string[], index: number, flag: string): string => {
   const value = argv[index + 1];
   if (!value || value.startsWith("--")) {
@@ -90,10 +87,13 @@ export const parseArgs = (
 
 export const helpText = `Confident AI Setup Wizard
 
+Adds Confident AI tracing to your AI app, runs it once, and confirms the first
+trace arrived.
+
 Usage: confident-setup [options]
 
 Options:
-  --from <source>        Setup entry point (deepeval asks first; default: direct)
+  --from <source>        Where setup was launched from (default: direct)
   --project-dir <path>   Project directory (default: current directory)
   --app-url <url>        Confident app URL (default: https://app.confident-ai.com)
   --api-url <url>        Confident API URL (default: https://api.confident-ai.com)

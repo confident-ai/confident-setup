@@ -31,6 +31,9 @@ export interface TelemetryEvent {
 
 type TelemetryErrorCode = NonNullable<TelemetryEvent["errorCode"]>;
 
+/** The backend contract's last step; reporting `tracing` needs a backend change. */
+export const FINAL_STEP = "evaluation" satisfies TelemetryEvent["step"];
+
 /** Map a thrown error onto a coarse code, never onto its message. */
 export const classifyErrorCode = (error: unknown): TelemetryErrorCode => {
   const message = (

@@ -2,11 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   deferredSetupMessage,
-  DEEPEVAL_DOCS_URL,
   fullPermissionWarning,
   listLabels,
-  MANUAL_QUICKSTART_URL,
   setupModeOptions,
+  TRACING_QUICKSTART_URL,
 } from "../src/modes.js";
 
 describe("mode helpers", () => {
@@ -17,10 +16,16 @@ describe("mode helpers", () => {
       "manual",
     ]);
     expect(fullPermissionWarning("Codex")).toContain("full permission");
-    expect(deferredSetupMessage("manual")).toContain(MANUAL_QUICKSTART_URL);
-    expect(deferredSetupMessage("manual", false)).toContain(DEEPEVAL_DOCS_URL);
-    expect(deferredSetupMessage("own-agent")).toBe(
-      deferredSetupMessage("own-agent", false),
+    expect(deferredSetupMessage("manual")).toContain(TRACING_QUICKSTART_URL);
+    expect(deferredSetupMessage("own-agent")).toContain("run your app");
+  });
+
+  it("offers the tracing quickstart for manual setup", () => {
+    const manual = setupModeOptions().at(-1);
+    expect(manual?.label).toBe("Add tracing yourself");
+    expect(manual?.hint).toContain("tracing quickstart");
+    expect(TRACING_QUICKSTART_URL).toBe(
+      "https://www.confident-ai.com/docs/llm-tracing/quickstart",
     );
   });
 

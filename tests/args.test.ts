@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  parseArgs,
-  requireInteractiveTty,
-  requiresConfidentOptIn,
-} from "../src/args.js";
+import { helpText, parseArgs, requireInteractiveTty } from "../src/args.js";
 
 describe("parseArgs", () => {
   it("uses production defaults and separates source from project path", () => {
@@ -19,10 +15,17 @@ describe("parseArgs", () => {
     });
   });
 
-  it("asks to use Confident AI only when launched from DeepEval", () => {
-    expect(requiresConfidentOptIn("deepeval")).toBe(true);
-    expect(requiresConfidentOptIn("direct")).toBe(false);
-    expect(requiresConfidentOptIn("in_app_setup")).toBe(false);
+  it("keeps --from as a free-form source label", () => {
+    expect(parseArgs([], "/repo").from).toBe("direct");
+    expect(parseArgs(["--from", "docs_quickstart"], "/repo").from).toBe(
+      "docs_quickstart",
+    );
+    expect(() => parseArgs(["--from", "not a label"])).toThrow();
+  });
+
+  it("describes tracing setup in its help", () => {
+    expect(helpText).toContain("tracing");
+    expect(helpText).toContain("--from <source>");
   });
 
   it("parses IDs and strips URL trailing slashes", () => {

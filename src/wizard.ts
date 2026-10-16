@@ -9,7 +9,6 @@ import {
   multiselect,
   note,
   outro,
-  password,
   select,
   taskLog,
   text,
@@ -31,32 +30,20 @@ import type {
   QuestionnaireAnswers,
 } from "./api.js";
 import { ConfidentApi } from "./api.js";
-import { requiresConfidentOptIn, type CliArgs } from "./args.js";
+import type { CliArgs } from "./args.js";
 import {
-  DEEPEVAL_PACKAGE,
-  describeCommands,
-  evaluationTarget,
-  inspectDeepEval,
-  installDeepEval,
-  type Ecosystem,
-  type EvaluationTarget,
-} from "./deepeval.js";
+  otelEndpointForKey,
+  resolveCredentials,
+  type Credentials,
+  type KeySource,
+} from "./credentials.js";
 import {
   CONFIDENT_API_KEY,
   ensureEnvLocalIgnored,
-  readEnvValues,
   writeEnvValues,
 } from "./env.js";
 import { restoreTerminalFocus } from "./focus.js";
 import { describeGitStatus, inspectGit, runCommand } from "./git.js";
-import {
-  detectJudge,
-  judgeEnvValues,
-  judgeMissing,
-  judgeProviders,
-  providersWithKey,
-  type JudgeProvider,
-} from "./judge.js";
 import {
   applyCustomSelection,
   enforceExclusiveSelection,
@@ -66,48 +53,42 @@ import {
 } from "./onboarding.js";
 import {
   deferredSetupMessage,
-  DEEPEVAL_DOCS_URL,
-  EVALUATION_DOCS_URL,
   fullPermissionWarning,
   GITHUB_ISSUE_URL,
-  judgeSkipWarning,
   listLabels,
-  MANUAL_QUICKSTART_URL,
   promptDeliveryOptions,
   setupModeOptions,
   SUPPORT_URL,
+  TRACING_DOCS_URL,
+  TRACING_QUICKSTART_URL,
   type PromptDelivery,
   type SetupMode,
 } from "./modes.js";
 import { buildAgentPrompt } from "./prompt.js";
+import { readSetupResult } from "./result.js";
 import {
-  readSetupResult,
-  type RejectedSetupResult,
-  type SetupResult,
-} from "./result.js";
-import { classifyErrorCode, SetupTelemetry } from "./telemetry.js";
+  finishAgentRun,
+  finishManualRun,
+  nextSteps,
+  type RunContext,
+  type RunFinish,
+  type RunIo,
+} from "./run.js";
 import {
-  accent,
-  alert,
-  banner,
-  brand,
-  stepHeading,
-  wizardStepsFor,
-} from "./theme.js";
+  classifyErrorCode,
+  FINAL_STEP,
+  SetupTelemetry,
+  type TelemetryEvent,
+} from "./telemetry.js";
+import { accent, alert, banner, brand, stepHeading } from "./theme.js";
 import { log, spinner } from "./ui.js";
-import { verifyTestRun, type VerificationResult } from "./verification.js";
+import {
+  buildTracesUrl,
+  verifyFirstTrace,
+  type TraceVerification,
+} from "./verification.js";
 
 class WizardCancelledError extends Error {}
-
-export interface JudgeSelection {
-  provider?: JudgeProvider;
-}
-
-/**
- * A prompt can be cancelled from anywhere, so the footer's docs link lives here
- * rather than being threaded through every prompt.
- */
-let evaluationDocsUrl = EVALUATION_DOCS_URL;
 
 const showCancellation = (message = "Setup cancelled."): void => {
   cancel(
@@ -117,7 +98,7 @@ const showCancellation = (message = "Setup cancelled."): void => {
       `If you ran into an issue, please open a GitHub issue: ${GITHUB_ISSUE_URL}`,
       "",
       pc.dim(`- Contact support: ${SUPPORT_URL}`),
-      pc.dim(`- Evaluation documentation: ${evaluationDocsUrl}`),
+      pc.dim(`- Tracing documentation: ${TRACING_DOCS_URL}`),
     ].join("\n"),
   );
 };
@@ -192,130 +173,32 @@ const confirmUnsafeGitState = async (
   }
 };
 
-const ECOSYSTEM_LABELS: Record<Ecosystem, string> = {
-  python: "Python",
-  node: "TypeScript",
-};
-
-/**
- * A missing SDK is cheap to fix here and expensive later: without it the agent
- * improvises an install mid-run, or the evaluation fails after a key already
- * exists on disk. The answer also tells the agent which SDK to instrument
- * with, which one prompt cannot infer as reliably as the install can.
- */
-const ensureDeepEval = async (
-  projectDirectory: string,
-): Promise<EvaluationTarget | undefined> => {
-  const checking = spinner();
-  checking.start("Looking for DeepEval…");
-  const { installed, targets, languages } =
-    await inspectDeepEval(projectDirectory);
-  /**
-   * An application in neither language cannot be instrumented, so the wizard
-   * says so once here rather than letting the agent discover it mid-run.
-   */
-  if (languages.length === 0) {
-    log.warn(
-      [
-        "This project is not written in Python or TypeScript, the two languages DeepEval has an SDK for.",
-        "The evaluation will call your application from the outside and score its answers, so it grades the whole application rather than its components.",
-      ].join("\n"),
-    );
-  }
-  if (installed) {
-    checking.stop(`DeepEval found in ${accent(installed.label)}.`);
-    return evaluationTarget(languages, installed.ecosystem);
-  }
-  checking.stop("DeepEval is not installed yet.");
-
-  const [only] = targets;
-  const answer = requiredPrompt<Ecosystem | "skip">(
+/** The key itself is never shown, only where it was found. */
+const chooseKeyReuse = async ({
+  source,
+}: {
+  source: KeySource;
+}): Promise<boolean> => {
+  const answer = requiredPrompt<"reuse" | "new">(
     await select({
-      message: [
-        `${alert(pc.bold("DeepEval is not installed."))} The evaluation cannot run without it.`,
-        "",
-        ...targets.flatMap((target) => [
-          `Install it into ${accent(target.label)} with:`,
-          "",
-          describeCommands(target.install),
-          "",
-        ]),
-        pc.bold(
-          targets.length > 1
-            ? "Which one should the evaluation use?"
-            : "Install DeepEval now?",
-        ),
-      ].join("\n"),
+      message: `Found a Confident AI key in ${
+        source === "env-local" ? ".env.local" : "your shell environment"
+      }.`,
       options: [
-        ...targets.map((target) => ({
-          label:
-            targets.length > 1
-              ? `Yes, the ${ECOSYSTEM_LABELS[target.ecosystem]} SDK`
-              : "Yes, install DeepEval",
-          value: target.ecosystem,
-          hint:
-            targets.length > 1
-              ? `Installs into ${target.label}`
-              : "Runs the command above in this project",
-        })),
         {
-          label: "No, I will install it myself",
-          value: "skip" as const,
-          hint: "Setup continues, but the evaluation may not run",
+          label: "Use the Confident AI key already in this project",
+          value: "reuse",
+          hint: "Recommended. Skips sign-in and saves nothing new",
+        },
+        {
+          label: "Sign in and create a new key",
+          value: "new",
+          hint: "Opens your browser and saves a new key to .env.local",
         },
       ],
     }),
   );
-  if (answer === "skip") {
-    log.warn(
-      `Install ${DEEPEVAL_PACKAGE} before the evaluation runs, or the run will fail.`,
-    );
-    /** One target leaves no ambiguity about the language, a declined choice does. */
-    return targets.length === 1
-      ? evaluationTarget(languages, only?.ecosystem)
-      : undefined;
-  }
-
-  const target = targets.find(({ ecosystem }) => ecosystem === answer) ?? only;
-  if (!target) return undefined;
-
-  const installing = spinner();
-  installing.start(`Installing DeepEval into ${target.label}…`);
-  try {
-    await installDeepEval(target, projectDirectory);
-    installing.stop(`DeepEval installed into ${accent(target.label)}.`);
-  } catch (error) {
-    installing.error("Could not install DeepEval.");
-    log.warn(
-      [
-        error instanceof Error ? error.message : String(error),
-        `Install ${DEEPEVAL_PACKAGE} yourself before the evaluation runs.`,
-      ].join("\n"),
-    );
-  }
-  return evaluationTarget(languages, target.ecosystem);
-};
-
-const confirmConfidentAi = async (): Promise<boolean> => {
-  const proceed = requiredPrompt<"yes" | "no">(
-    await select({
-      message:
-        "DeepEval can run evals locally without the platform. Use Confident AI to save results in the cloud?",
-      options: [
-        {
-          label: "Yes, set up Confident AI",
-          value: "yes",
-          hint: "Sign in, save an API key, then add and verify the evaluation",
-        },
-        {
-          label: "No, keep DeepEval local",
-          value: "no",
-          hint: "Skip sign-in; still add a local evaluation",
-        },
-      ],
-    }),
-  );
-  return proceed === "yes";
+  return answer === "reuse";
 };
 
 const promptQuestionnaire = async (
@@ -418,7 +301,7 @@ const chooseAndCompleteProject = async (
     }
     note(
       "Your browser login is new to Confident AI. Complete the short project questionnaire.",
-      "Create your first evaluation project",
+      "Create your first project",
     );
     const questionnaireAnswers = await promptQuestionnaire(onboarding);
     return api.completeOnboarding(setupToken, {
@@ -432,7 +315,7 @@ const chooseAndCompleteProject = async (
     preselected ??
     requiredPrompt<{ id: string; name: string }>(
       await select({
-        message: "Choose the Confident AI project for this evaluation",
+        message: "Choose the Confident AI project to send traces to",
         options: onboarding.projects
           .filter((candidate) => candidate.canCreateApiKey)
           .map((candidate) => ({
@@ -442,6 +325,120 @@ const chooseAndCompleteProject = async (
       }),
     );
   return api.completeOnboarding(setupToken, { projectId: project.id });
+};
+
+/** Steps 1-3: browser pairing, project choice, and the key in `.env.local`. */
+const signIn = async (
+  args: CliArgs,
+  telemetry: SetupTelemetry,
+): Promise<Credentials> => {
+  log.message(stepHeading(1));
+  const api = new ConfidentApi(args.apiUrl);
+  const session = await api.createAuthSession({
+    source: args.from,
+    ...(args.orgId ? { organizationId: args.orgId } : {}),
+    ...(args.projId ? { projectId: args.projId } : {}),
+  });
+  telemetry.setTelemetryToken(session.telemetryToken);
+  await telemetry.send({
+    event: "wizard_started",
+    step: "bootstrap",
+    result: "succeeded",
+  });
+  await telemetry.send({
+    event: "authentication_started",
+    step: "authentication",
+    result: "started",
+  });
+  const pairingUrl = pairingUrlForApp(
+    args.appUrl,
+    session.verificationUriComplete,
+  );
+  log.info(
+    [
+      pc.bold(
+        "Sign in to continue setup. Your browser should have opened automatically.",
+      ),
+      "",
+      `Verification code: ${pc.bold(session.userCode)}`,
+      "",
+      pc.dim(
+        "If your browser did not open automatically, open the link below:",
+      ),
+      accent(pairingUrl),
+    ].join("\n"),
+  );
+  await open(pairingUrl).catch(() => {
+    log.warn("Could not open the browser automatically. Use the URL above.");
+  });
+
+  const waiting = spinner();
+  waiting.start("Waiting for browser setup (the link remains valid briefly)…");
+  const { authorization, onboarding } = await (async () => {
+    try {
+      const authorized = await api.pollAuthSession(session);
+      const state = await api.getOnboarding(authorized.setupToken);
+      return { authorization: authorized, onboarding: state };
+    } catch (error) {
+      waiting.error("Browser setup stopped.");
+      throw error;
+    }
+  })();
+  await restoreTerminalFocus();
+  const browserProject =
+    onboarding.state === "existing_user"
+      ? onboarding.projects.find(
+          (candidate) =>
+            candidate.id === args.projId ||
+            (onboarding.projects.length === 1 && candidate.canCreateApiKey),
+        )
+      : undefined;
+  waiting.stop(
+    onboarding.state === "existing_user" &&
+      onboarding.organization &&
+      browserProject
+      ? `Browser setup complete. (org: ${accent(onboarding.organization.name)}, project: ${accent(browserProject.name)})`
+      : authorization.email
+        ? `Browser sign-in complete (${authorization.email}).`
+        : "Browser sign-in complete.",
+  );
+  await telemetry.send({
+    event: "authentication_completed",
+    step: "authentication",
+    result: "succeeded",
+  });
+
+  log.message(stepHeading(2));
+  const completion = await chooseAndCompleteProject(
+    api,
+    authorization.setupToken,
+    onboarding,
+    args,
+  );
+  if (onboarding.state === "existing_user") {
+    const project = onboarding.projects.find(
+      (candidate) => candidate.id === completion.projectId,
+    );
+    const labels = [onboarding.organization?.name, project?.name].filter(
+      Boolean,
+    );
+    if (labels.length && project?.id !== browserProject?.id) {
+      log.success(`Project setup complete (${labels.join(" / ")}).`);
+    }
+  }
+
+  log.message(stepHeading(3));
+  await writeEnvValues(args.projectDir, {
+    [CONFIDENT_API_KEY]: completion.apiKey,
+  });
+  log.success("Saved project credentials securely to .env.local.");
+  await ignoreEnvLocal(args.projectDir);
+  return {
+    apiKey: completion.apiKey,
+    projectId: completion.projectId,
+    inEnvLocal: true,
+    reused: false,
+  };
 };
 
 const prepareResultFile = async (): Promise<{
@@ -456,12 +453,12 @@ const showOwnAgentPrompt = async (
   delivery: PromptDelivery,
   prompt: string,
   resultFile: string,
-  useConfidentAi: boolean,
+  keyInEnvLocal: boolean,
 ): Promise<void> => {
   if (delivery === "clipboard") {
     try {
       await clipboard.write(prompt);
-      log.success("Copied evaluation setup prompt to the clipboard.");
+      log.success("Copied the tracing setup prompt to the clipboard.");
     } catch (error) {
       log.warn(
         `Could not copy the prompt: ${error instanceof Error ? error.message : String(error)}`,
@@ -474,135 +471,115 @@ const showOwnAgentPrompt = async (
   note(
     [
       "Paste the prompt into your coding agent as the next message.",
-      "Let it finish building and running the evaluation in this project.",
+      "Let it add tracing and run your app once.",
       "Come back here and confirm when it is done.",
       "",
-      ...(useConfidentAi
-        ? [
-            "DeepEval loads CONFIDENT_API_KEY from .env.local. Do not ask the agent to read that file.",
-          ]
-        : ["Do not ask the agent to read .env.local."]),
+      keyInEnvLocal
+        ? "The prompt tells the agent to load CONFIDENT_API_KEY from .env.local without reading it."
+        : "Your key is in your shell environment, not .env.local. Make sure your agent's shell has CONFIDENT_API_KEY.",
       `The prompt already includes the result path: ${resultFile}`,
     ].join("\n"),
     "What to do next",
   );
 };
 
-const summarizeResult = (result: SetupResult, testRunUrl?: string): string => {
-  const lines = [
-    `Status: ${
-      result.status === "completed"
-        ? accent(result.status)
-        : alert(result.status)
-    }`,
-    `SDKs: ${result.sdks.join(", ")}`,
-    `Shape: ${result.shape}`,
-    `Levels: ${result.levels.join(", ")}`,
-    `Dataset: ${result.datasetSource}`,
-    `Metrics: ${result.metrics.join(", ") || "none"}`,
-    `Rerun: ${pc.bold(result.rerunCommand)}`,
-  ];
-  if (testRunUrl) lines.push(`Test run: ${accent(testRunUrl)}`);
-  if (result.errors?.length) lines.push(`Issues: ${result.errors.join("; ")}`);
-  return lines.join("\n");
-};
-
-const completionOutro = (verified: boolean, useConfidentAi: boolean): string =>
+const completionOutro = (finish: RunFinish): string =>
   [
-    `${useConfidentAi ? brand("Confident AI") : accent("DeepEval")} ${pc.dim("evaluation setup complete.")}`,
-    "",
-    verified
-      ? `${accent("✔")} Your evaluation is ready to rerun.${
-          useConfidentAi ? " Review it in Confident AI." : ""
-        }`
-      : `Next: finish the evaluation.${
-          useConfidentAi ? " Then verify its Confident AI test run." : ""
-        }`,
+    finish === "verified"
+      ? `${brand("Confident AI")} ${pc.dim("tracing setup complete. Your first trace is in.")}`
+      : `${brand("Confident AI")} ${pc.dim("tracing setup finished without a confirmed trace.")}`,
     "",
     `If you encountered an issue, please open a GitHub issue: ${GITHUB_ISSUE_URL}`,
     "",
     pc.dim(`- Contact support: ${SUPPORT_URL}`),
-    pc.dim(`- Evaluation documentation: ${evaluationDocsUrl}`),
+    pc.dim(`- Tracing documentation: ${TRACING_DOCS_URL}`),
   ].join("\n");
 
-const verifyTestRunWithProgress = async (
+const completionTelemetry = (
+  finish: RunFinish,
+): Pick<TelemetryEvent, "step" | "result"> =>
+  finish === "verified"
+    ? { step: FINAL_STEP, result: "succeeded" }
+    : finish === "deferred"
+      ? { step: "configuration", result: "cancelled" }
+      : { step: FINAL_STEP, result: "failed" };
+
+const verifyWithProgress = async (
   args: CliArgs,
-  apiKey: string,
-  projectId: string,
-  testRunId: string,
-): Promise<VerificationResult | undefined> => {
-  const verifying = spinner();
-  verifying.start("Verifying Confident AI test run…");
+  credentials: Credentials,
+  since: Date,
+): Promise<TraceVerification> => {
+  const waiting = spinner();
+  const label = "Waiting for the first trace to reach Confident AI";
+  waiting.start(`${label}…`);
   try {
-    const result = await verifyTestRun(
-      args.apiUrl,
-      args.appUrl,
-      apiKey,
-      projectId,
-      testRunId,
+    const result = await verifyFirstTrace(
+      {
+        apiUrl: credentials.apiUrl ?? args.apiUrl,
+        appUrl: args.appUrl,
+        apiKey: credentials.apiKey,
+        projectId: credentials.projectId,
+        since,
+      },
+      {
+        onPoll: (elapsedMs) =>
+          waiting.message(
+            `${label} (${Math.round(elapsedMs / 1000)}s, up to 3 minutes)…`,
+          ),
+      },
     );
-    verifying.stop(
-      result.status && result.status !== "COMPLETED"
-        ? `Test run found on Confident AI (status: ${result.status}).`
-        : "Confident AI test run verified.",
-    );
+    if (result.status === "found") waiting.stop("First trace found.");
+    else if (result.status === "timeout") waiting.error("No trace yet.");
+    else waiting.error("Could not check for traces.");
     return result;
   } catch (error) {
-    verifying.error("Test-run verification failed.");
-    log.warn(
-      [
-        error instanceof Error ? error.message : String(error),
-        "Your evaluation files and project credentials were left in place.",
-      ].join(" "),
-    );
-    return undefined;
+    waiting.error("Could not check for traces.");
+    return {
+      status: "error",
+      message: error instanceof Error ? error.message : String(error),
+      tracesUrl: buildTracesUrl(args.appUrl, credentials.projectId),
+    };
   }
 };
 
-/**
- * The suite has already run by the time its result file is read, so a file the
- * contract rejects is a reporting problem, not a failed evaluation. Name what
- * to fix and hand back the test run and rerun command anyway.
- */
-const reportRejectedResult = async (
+const runIo = (
   args: CliArgs,
-  rejected: RejectedSetupResult,
-  cloud?: { apiKey: string; projectId: string },
-): Promise<void> => {
-  const { rerunCommand, testRunId, testRunUrl } = rejected.salvaged;
-  log.warn(
-    [
-      "The agent reported a result the setup contract rejects:",
-      ...rejected.issues.map((issue) => `  • ${issue}`),
-      rerunCommand
-        ? `Rerun the evaluation with: ${pc.bold(rerunCommand)}`
-        : "Review the evaluation files the agent wrote before rerunning.",
-    ].join("\n"),
-  );
-  if (!cloud || !testRunId) {
-    if (testRunUrl) note(accent(testRunUrl), "Reported Confident AI test run");
-    return;
-  }
-  const verification = await verifyTestRunWithProgress(
-    args,
-    cloud.apiKey,
-    cloud.projectId,
-    testRunId,
-  );
-  if (verification) {
-    note(accent(verification.testRunUrl), "Verified Confident AI test run");
-  }
-};
+  credentials: Credentials,
+  since: Date,
+): RunIo => ({
+  info: (message) => log.info(message),
+  warn: (message) => log.warn(message),
+  note: (message, title) => note(message, title),
+  confirmRan: async (message) =>
+    requiredPrompt<boolean>(
+      await select<boolean>({
+        message,
+        options: [
+          {
+            label: "I ran it",
+            value: true,
+            hint: "Check Confident AI for the first trace",
+          },
+          {
+            label: "I'll do it later",
+            value: false,
+            hint: "Keep the changes and finish on your own",
+          },
+        ],
+      }),
+    ),
+  verify: () => verifyWithProgress(args, credentials, since),
+});
 
 const executeAgentWithProgress = async (
   agent: AgentDefinition,
   projectDirectory: string,
   prompt: string,
-  apiKey: string | undefined,
+  apiKey: string,
   resultFile: string,
 ): Promise<void> => {
   const output = taskLog({
-    title: `Running ${agent.label} to build your evaluation`,
+    title: `Running ${agent.label} to add tracing`,
     limit: 9,
     spacing: 0,
     retainLog: false,
@@ -667,147 +644,24 @@ const discoverReadyAgents = async (
     return `- ${check.agent.label}: ${status}`;
   });
   note(
-    `${details.join("\n")}\n\nPaste the prompt into your own coding agent, or follow the DeepEval docs instead.`,
+    `${details.join("\n")}\n\nPaste the prompt into your own coding agent, or follow the tracing quickstart instead.`,
     "No agent to launch for you",
   );
   return [];
 };
 
-/**
- * DeepEval cannot run an LLM judge without provider credentials, so this either
- * confirms what the environment already offers or collects one key and writes it
- * beside `CONFIDENT_API_KEY`. The secret is only ever passed to the dotenv
- * writer: it is never logged, echoed, or handed to an agent as an argument.
- */
-const configureJudgeModel = async (
-  projectDirectory: string,
-): Promise<JudgeSelection> => {
-  const detecting = spinner();
-  detecting.start("Looking for judge-model credentials…");
-  // DeepEval autoloads `.env.local` but lets the real environment win.
-  const env = { ...(await readEnvValues(projectDirectory)), ...process.env };
-  const detected = detectJudge(env);
-  if (detected && detected.missing.length === 0) {
-    const found = detected.provider.secrets
-      .filter((secret) => env[secret.envVar]?.trim())
-      .map((secret) => secret.envVar);
-    detecting.stop(
-      `Judge model ready: ${accent(detected.provider.label)}${
-        found.length ? ` (${listLabels(found, "and")} found)` : ""
-      }.`,
-    );
-    return { provider: detected.provider };
-  }
-  // Keys DeepEval would ignore today because their provider flag is unset.
-  const reusable = providersWithKey(env).filter(
-    (provider) => provider !== detected?.provider,
-  );
-  const reusableKeys = reusable.flatMap((provider) =>
-    provider.secrets
-      .filter((secret) => (env[secret.envVar] ?? "").trim())
-      .map((secret) => secret.envVar),
-  );
-  detecting.stop(
-    detected
-      ? `${detected.provider.label} is selected but incomplete (missing ${detected.missing.join(", ")}).`
-      : reusableKeys.length
-        ? `Found ${listLabels(reusableKeys, "and")} in this environment, but DeepEval is not set to use ${reusableKeys.length > 1 ? "any of them" : "it"} yet.`
-        : "No judge-model credentials found in this environment.",
-  );
-
-  const choice = requiredPrompt<JudgeProvider | "skip">(
-    await select<JudgeProvider | "skip">({
-      message: "Which model should judge your evaluation?",
-      maxItems: 8,
-      ...(detected || reusable.length
-        ? { initialValue: detected?.provider ?? reusable[0]! }
-        : {}),
-      options: [
-        // Providers whose key is already here come first, so the common case
-        // is one keystroke rather than a paste.
-        ...reusable.map((provider) => ({
-          label: provider.label,
-          value: provider,
-          hint: `Reuse the ${provider.secrets
-            .filter((secret) => (env[secret.envVar] ?? "").trim())
-            .map((secret) => secret.envVar)
-            .join(" and ")} already in your environment`,
-        })),
-        ...judgeProviders
-          .filter((provider) => !reusable.includes(provider))
-          .map((provider) => ({
-            label: provider.label,
-            value: provider,
-            hint: provider.hint,
-          })),
-        {
-          label: "Skip for now",
-          value: "skip" as const,
-          hint: "Deterministic metrics only until you add a key",
-        },
-      ],
-    }),
-  );
-  if (choice === "skip") {
-    log.warn(judgeSkipWarning);
-    return {};
-  }
-
-  // Ask only for what this environment cannot already supply.
-  const needed = judgeMissing(choice, env);
-  const secrets: Record<string, string> = {};
-  for (const secret of choice.secrets) {
-    if ((env[secret.envVar] ?? "").trim()) continue;
-    const required = needed.includes(secret.envVar);
-    const answer = requiredPrompt(
-      await password({
-        message: required
-          ? `Paste your ${secret.label} (saved to .env.local, never displayed)`
-          : `Paste your ${secret.label}, or leave it empty to skip`,
-        ...(required
-          ? {
-              validate: (value: string | undefined) =>
-                value?.trim() ? undefined : "A value is required",
-            }
-          : {}),
-      }),
-    ).trim();
-    if (answer) secrets[secret.envVar] = answer;
-  }
-  const settings: Record<string, string> = {};
-  for (const setting of choice.settings.filter((candidate) =>
-    needed.includes(candidate.envVar),
-  )) {
-    settings[setting.envVar] = requiredPrompt(
-      await text({
-        message: setting.label,
-        ...(setting.placeholder ? { placeholder: setting.placeholder } : {}),
-        validate: (value) => (value?.trim() ? undefined : "Required"),
-      }),
-    ).trim();
-  }
-
-  const values = judgeEnvValues(choice, { secrets, settings });
-  if (Object.keys(values).length)
-    await writeEnvValues(projectDirectory, values);
-  const reused = choice.secrets
-    .filter((secret) => !secrets[secret.envVar] && env[secret.envVar]?.trim())
-    .map((secret) => secret.envVar);
-  log.success(
-    reused.length
-      ? `Selected ${choice.label} in .env.local. DeepEval reads ${listLabels(reused, "and")} from your environment.`
-      : `Saved ${choice.label} judge-model settings to .env.local. DeepEval loads them from there.`,
-  );
-  return { provider: choice };
-};
+interface StepFive {
+  args: CliArgs;
+  credentials: Credentials;
+  gitRoot: string | undefined;
+  context: RunContext;
+  io: RunIo;
+}
 
 const runBuiltInMode = async (
-  args: CliArgs,
+  { args, credentials, gitRoot, context, io }: StepFive,
   readyAgents: AgentDefinition[],
-  judge: JudgeSelection,
-  cloud?: { apiKey: string; projectId: string },
-  evaluation?: EvaluationTarget,
-): Promise<boolean> => {
+): Promise<RunFinish> => {
   if (!readyAgents.length) {
     throw new Error("No built-in coding agent is available.");
   }
@@ -848,49 +702,65 @@ const runBuiltInMode = async (
   }
 
   const resultFile = await prepareResultFile();
-  const prompt = buildAgentPrompt(
-    args.projectDir,
-    resultFile.path,
-    judge,
-    Boolean(cloud),
-    evaluation,
-  );
+  const prompt = buildAgentPrompt({
+    projectDirectory: args.projectDir,
+    gitRoot,
+    resultFile: resultFile.path,
+    delivery: "built-in",
+    keyInEnvLocal: credentials.inEnvLocal,
+    otelEndpoint: otelEndpointForKey(credentials.apiKey),
+  });
   try {
-    await executeAgentWithProgress(
-      agent,
-      args.projectDir,
-      prompt,
-      cloud?.apiKey,
-      resultFile.path,
-    );
-    const outcome = await readSetupResult(resultFile.path, Boolean(cloud));
-    if (!outcome.ok) {
-      await reportRejectedResult(args, outcome.rejected, cloud);
-      return false;
+    try {
+      await executeAgentWithProgress(
+        agent,
+        args.projectDir,
+        prompt,
+        credentials.apiKey,
+        resultFile.path,
+      );
+    } catch (error) {
+      log.warn(nextSteps(context));
+      throw error;
     }
-    const { result } = outcome;
-    const verification =
-      cloud && result.status === "completed" && result.testRunId
-        ? await verifyTestRunWithProgress(
-            args,
-            cloud.apiKey,
-            cloud.projectId,
-            result.testRunId,
-          )
-        : undefined;
-    if (verification) result.testRunUrl = verification.testRunUrl;
-    note(summarizeResult(result, result.testRunUrl), "Evaluation setup result");
-    return cloud ? Boolean(verification) : result.status === "completed";
+    return await finishAgentRun(
+      await readSetupResult(resultFile.path),
+      context,
+      io,
+    );
   } finally {
     await rm(resultFile.directory, { recursive: true, force: true });
   }
 };
 
-const finishOwnAgentMode = async (
-  args: CliArgs,
-  resultFile: { directory: string; path: string },
-  cloud?: { apiKey: string; projectId: string },
-): Promise<boolean> => {
+const runOwnAgentMode = async ({
+  args,
+  credentials,
+  gitRoot,
+  context,
+  io,
+}: StepFive): Promise<RunFinish> => {
+  const resultFile = await prepareResultFile();
+  const delivery = requiredPrompt<PromptDelivery>(
+    await select({
+      message: "How should we give you the prompt to paste?",
+      options: promptDeliveryOptions,
+    }),
+  );
+  await showOwnAgentPrompt(
+    delivery,
+    buildAgentPrompt({
+      projectDirectory: args.projectDir,
+      gitRoot,
+      resultFile: resultFile.path,
+      delivery: "pasted",
+      keyInEnvLocal: credentials.inEnvLocal,
+      otelEndpoint: otelEndpointForKey(credentials.apiKey),
+    }),
+    resultFile.path,
+    credentials.inEnvLocal,
+  );
+
   const decision = requiredPrompt<"finished" | "later">(
     await select({
       message:
@@ -899,92 +769,47 @@ const finishOwnAgentMode = async (
         {
           label: "The agent finished",
           value: "finished",
-          hint: "Read the structured result file",
+          hint: "Read its result and check for the first trace",
         },
         {
           label: "I'll finish later",
           value: "later",
-          hint: "Keep the prompt and continue later",
+          hint: "Keep the prompt and finish on your own",
         },
       ],
     }),
   );
   if (decision === "later") {
-    log.info(`Finish later using the prompt's result path: ${resultFile.path}`);
-    return false;
+    // The agent may still write its result, so the file stays where it is.
+    log.info(
+      [deferredSetupMessage("own-agent"), "", nextSteps(context)].join("\n"),
+    );
+    return "deferred";
   }
 
   try {
-    const outcome = await readSetupResult(resultFile.path, Boolean(cloud));
-    if (!outcome.ok) {
-      await reportRejectedResult(args, outcome.rejected, cloud);
-      return false;
-    }
-    const { result } = outcome;
-    const verification =
-      cloud && result.testRunId
-        ? await verifyTestRunWithProgress(
-            args,
-            cloud.apiKey,
-            cloud.projectId,
-            result.testRunId,
-          )
-        : undefined;
-    if (verification) result.testRunUrl = verification.testRunUrl;
-    note(summarizeResult(result, result.testRunUrl), "Evaluation setup result");
-    return cloud
-      ? result.status === "completed" && Boolean(verification)
-      : result.status === "completed";
+    return await finishAgentRun(
+      await readSetupResult(resultFile.path),
+      context,
+      io,
+    );
   } finally {
     await rm(resultFile.directory, { recursive: true, force: true });
   }
 };
 
-const finishManualMode = async (
-  args: CliArgs,
-  cloud?: { apiKey: string; projectId: string },
-): Promise<boolean> => {
-  const docsUrl = cloud ? MANUAL_QUICKSTART_URL : DEEPEVAL_DOCS_URL;
-  const decision = requiredPrompt<"verify" | "later">(
-    await select({
-      message: [
-        "Follow the evaluation quickstart for your project:",
-        accent(docsUrl),
-        "",
-        pc.bold("Did you complete and run the evaluation?"),
-      ].join("\n"),
-      options: [
-        {
-          label: "Yes, the evaluation ran",
-          value: "verify",
-          hint: "Continue",
-        },
-        {
-          label: "Finish evaluation later",
-          value: "later",
-          hint: "Exit and continue later",
-        },
-      ],
-    }),
+const runManualMode = async ({
+  credentials,
+  context,
+  io,
+}: StepFive): Promise<RunFinish> => {
+  await open(TRACING_QUICKSTART_URL).catch(() => undefined);
+  log.info(
+    credentials.inEnvLocal
+      ? "CONFIDENT_API_KEY is saved in .env.local. confident-trace reads it from the environment, so load that file when you run your app."
+      : "CONFIDENT_API_KEY is in your shell environment. confident-trace reads it from there.",
   );
-  if (decision === "later") return false;
-  if (!cloud) return true;
-
-  const testRunId = requiredPrompt(
-    await text({
-      message: "Test-run ID",
-      validate: (value) => (value?.trim() ? undefined : "Required"),
-    }),
-  ).trim();
-  const verification = await verifyTestRunWithProgress(
-    args,
-    cloud.apiKey,
-    cloud.projectId,
-    testRunId,
-  );
-  if (!verification) return false;
-  note(accent(verification.testRunUrl), "Verified Confident AI test run");
-  return true;
+  return finishManualRun(context, io);
 };
 
 export const runWizard = async (args: CliArgs): Promise<void> => {
@@ -993,149 +818,40 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
     throw new Error(`Project directory does not exist: ${args.projectDir}`);
   }
 
-  // Cancelling the opt-in prompt below should still cite DeepEval's own docs.
-  const fromDeepEval = requiresConfidentOptIn(args.from);
-  if (fromDeepEval) evaluationDocsUrl = DEEPEVAL_DOCS_URL;
-
-  intro(pc.bold("Evaluation setup"));
-  const useConfidentAi = fromDeepEval ? await confirmConfidentAi() : true;
-  evaluationDocsUrl = useConfidentAi ? EVALUATION_DOCS_URL : DEEPEVAL_DOCS_URL;
-
+  intro(pc.bold("Tracing setup"));
   const telemetry = new SetupTelemetry(args.apiUrl);
-  process.stdout.write(
-    `\n${banner(process.stdout.columns ?? 80, useConfidentAi)}\n\n`,
-  );
-  const steps = wizardStepsFor(useConfidentAi);
-  const heading = (step: number, detail?: string): string =>
-    stepHeading(step, detail, steps);
+  process.stdout.write(`\n${banner(process.stdout.columns ?? 80)}\n\n`);
 
   try {
     const gitStatus = await inspectGit(args.projectDir);
     if (!gitStatus.isRepository || gitStatus.dirty) {
       await confirmUnsafeGitState(gitStatus);
     }
-    const evaluation = await ensureDeepEval(args.projectDir);
 
-    let cloud: { apiKey: string; projectId: string } | undefined;
-    if (useConfidentAi) {
-      log.message(heading(1));
-      const api = new ConfidentApi(args.apiUrl);
-      const session = await api.createAuthSession({
-        source: args.from,
-        ...(args.orgId ? { organizationId: args.orgId } : {}),
-        ...(args.projId ? { projectId: args.projId } : {}),
-      });
-      telemetry.setTelemetryToken(session.telemetryToken);
-      await telemetry.send({
-        event: "wizard_started",
-        step: "bootstrap",
-        result: "succeeded",
-      });
-      await telemetry.send({
-        event: "authentication_started",
-        step: "authentication",
-        result: "started",
-      });
-      const pairingUrl = pairingUrlForApp(
-        args.appUrl,
-        session.verificationUriComplete,
-      );
-      log.info(
-        [
-          pc.bold(
-            "Sign in to continue setup. Your browser should have opened automatically.",
-          ),
-          "",
-          `Verification code: ${pc.bold(session.userCode)}`,
-          "",
-          pc.dim(
-            "If your browser did not open automatically, open the link below:",
-          ),
-          accent(pairingUrl),
-        ].join("\n"),
-      );
-      await open(pairingUrl).catch(() => {
-        log.warn(
-          "Could not open the browser automatically. Use the URL above.",
-        );
-      });
+    const credentials = await resolveCredentials(
+      args,
+      () => signIn(args, telemetry),
+      {
+        chooseReuse: chooseKeyReuse,
+        checking: async (work) => {
+          const checking = spinner();
+          checking.start("Checking the key with Confident AI…");
+          try {
+            return await work();
+          } finally {
+            checking.stop();
+          }
+        },
+        info: (message) => log.info(message),
+        warn: (message) => log.warn(message),
+      },
+    );
 
-      const waiting = spinner();
-      waiting.start(
-        "Waiting for browser setup (the link remains valid briefly)…",
-      );
-      const { authorization, onboarding } = await (async () => {
-        try {
-          const authorized = await api.pollAuthSession(session);
-          const state = await api.getOnboarding(authorized.setupToken);
-          return { authorization: authorized, onboarding: state };
-        } catch (error) {
-          waiting.error("Browser setup stopped.");
-          throw error;
-        }
-      })();
-      await restoreTerminalFocus();
-      const browserProject =
-        onboarding.state === "existing_user"
-          ? onboarding.projects.find(
-              (candidate) =>
-                candidate.id === args.projId ||
-                (onboarding.projects.length === 1 && candidate.canCreateApiKey),
-            )
-          : undefined;
-      waiting.stop(
-        onboarding.state === "existing_user" &&
-          onboarding.organization &&
-          browserProject
-          ? `Browser setup complete. (org: ${accent(onboarding.organization.name)}, project: ${accent(browserProject.name)})`
-          : authorization.email
-            ? `Browser sign-in complete (${authorization.email}).`
-            : "Browser sign-in complete.",
-      );
-      await telemetry.send({
-        event: "authentication_completed",
-        step: "authentication",
-        result: "succeeded",
-      });
-
-      log.message(heading(2));
-      const completion = await chooseAndCompleteProject(
-        api,
-        authorization.setupToken,
-        onboarding,
-        args,
-      );
-      if (onboarding.state === "existing_user") {
-        const project = onboarding.projects.find(
-          (candidate) => candidate.id === completion.projectId,
-        );
-        const labels = [onboarding.organization?.name, project?.name].filter(
-          Boolean,
-        );
-        if (labels.length && project?.id !== browserProject?.id) {
-          log.success(`Project setup complete (${labels.join(" / ")}).`);
-        }
-      }
-
-      log.message(heading(3));
-      await writeEnvValues(args.projectDir, {
-        [CONFIDENT_API_KEY]: completion.apiKey,
-      });
-      log.success("Saved project credentials securely to .env.local.");
-      await ignoreEnvLocal(args.projectDir);
-      cloud = { apiKey: completion.apiKey, projectId: completion.projectId };
-    }
-
-    log.message(heading(useConfidentAi ? 4 : 1));
-    const judge = await configureJudgeModel(args.projectDir);
-    // The cloud path already ignored the file when it saved the project key.
-    if (!useConfidentAi) await ignoreEnvLocal(args.projectDir);
-
-    log.message(heading(useConfidentAi ? 5 : 2));
+    log.message(stepHeading(4));
     const readyAgents = await discoverReadyAgents(args.projectDir);
     const mode = requiredPrompt<SetupMode>(
       await select({
-        message: "How should we add the evaluation?",
+        message: "How should we add tracing?",
         options: setupModeOptions(readyAgents).filter(
           (option) => option.value !== "built-in" || readyAgents.length > 0,
         ),
@@ -1147,69 +863,36 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
       result: "started",
     });
 
-    log.message(
-      heading(
-        useConfidentAi ? 6 : 3,
-        mode === "built-in"
-          ? "Launch the detected agent"
-          : mode === "own-agent"
-            ? "Paste the prompt into your agent"
-            : "Follow the evaluation quickstart",
-      ),
-    );
-    if (mode === "built-in") {
-      const verified = await runBuiltInMode(
-        args,
-        readyAgents,
-        judge,
-        cloud,
-        evaluation,
-      );
-      await telemetry.send({
-        event: "setup_completed",
-        step: "evaluation",
-        result: verified ? "succeeded" : "failed",
-      });
-      outro(completionOutro(verified, useConfidentAi));
-      return;
-    }
+    /**
+     * Only traces created after this count. The app runs on this machine and
+     * reads the same clock, so a minute of slack covers a run that starts the
+     * moment this step does.
+     */
+    const since = new Date(Date.now() - 60_000);
+    log.message(stepHeading(5));
+    const stepFive: StepFive = {
+      args,
+      credentials,
+      gitRoot: gitStatus.gitRoot,
+      context: {
+        appUrl: args.appUrl,
+        projectId: credentials.projectId,
+        apiKey: credentials.apiKey,
+      },
+      io: runIo(args, credentials, since),
+    };
+    const finish =
+      mode === "built-in"
+        ? await runBuiltInMode(stepFive, readyAgents)
+        : mode === "own-agent"
+          ? await runOwnAgentMode(stepFive)
+          : await runManualMode(stepFive);
 
-    let setupVerified = false;
-    if (mode === "own-agent") {
-      const resultFile = await prepareResultFile();
-      const delivery = requiredPrompt<PromptDelivery>(
-        await select({
-          message: "How should we give you the prompt to paste?",
-          options: promptDeliveryOptions,
-        }),
-      );
-      await showOwnAgentPrompt(
-        delivery,
-        buildAgentPrompt(
-          args.projectDir,
-          resultFile.path,
-          judge,
-          useConfidentAi,
-          evaluation,
-        ),
-        resultFile.path,
-        useConfidentAi,
-      );
-      setupVerified = await finishOwnAgentMode(args, resultFile, cloud);
-      if (!setupVerified) log.info(deferredSetupMessage(mode, useConfidentAi));
-    } else {
-      await open(cloud ? MANUAL_QUICKSTART_URL : DEEPEVAL_DOCS_URL).catch(
-        () => undefined,
-      );
-      setupVerified = await finishManualMode(args, cloud);
-      if (!setupVerified) log.info(deferredSetupMessage(mode, useConfidentAi));
-    }
     await telemetry.send({
       event: "setup_completed",
-      step: setupVerified ? "evaluation" : "configuration",
-      result: setupVerified ? "succeeded" : "cancelled",
+      ...completionTelemetry(finish),
     });
-    outro(completionOutro(setupVerified, useConfidentAi));
+    outro(completionOutro(finish));
   } catch (error) {
     if (error instanceof WizardCancelledError) throw error;
     await telemetry.send({

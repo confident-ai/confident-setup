@@ -3,7 +3,8 @@
 ## Purpose
 
 This repository contains the standalone Confident Setup Wizard. Keep it focused
-on creating and running evaluations, not general tracing setup.
+on adding Confident AI tracing to an application, running it once, and
+confirming the first trace arrived.
 
 ## Commands
 
@@ -20,15 +21,17 @@ npm run build
 - Keep source TypeScript strict, ESM, modular, and dependency-injected at I/O
   boundaries.
 - Never log, serialize, pass as an argument, or send telemetry containing an
-  API key or setup token.
-- Preserve `.env.local` contents when changing the Confident key or judge-model
-  keys, reject symlinks, and retain mode `0600`.
-- `src/judge.ts` mirrors DeepEval's own judge resolution: `USE_*` flags first,
-  then the OpenAI fallback. Change it only against DeepEval's
-  `initialize_model`, `config/settings.py`, and `models/llms/constants.py`, and
-  keep judge secrets masked at entry and absent from logs and prompts, which
-  name only their variables. A provider's `settings` list only what DeepEval has
-  no default for, so never prompt for a value DeepEval would supply itself.
+  API key or setup token. Anything the wizard shows from an agent's result goes
+  through `src/run.ts`, which scrubs the key.
+- Preserve `.env.local` contents when changing the Confident key, reject
+  symlinks, and retain mode `0600`.
+- An existing `CONFIDENT_API_KEY`, from the shell environment first and then
+  `.env.local`, is offered for reuse before step one, and the reuse path writes
+  nothing. `src/credentials.ts` checks it against `GET /v2/traces?pageSize=1`:
+  401 falls back to signing in, and with `--proj-id` the
+  `confident-project-id` header must be accepted, since the API answers 400 for
+  a key from another project. The license gate answers 403 before the key is
+  looked at, so a 403 never confirms `--proj-id`.
 - Network behavior must be mockable; unit tests must not access the network.
 - Browser auth and onboarding endpoints are existing API contracts. Validate
   their responses.
@@ -38,85 +41,55 @@ npm run build
   smoke check, a status command, and a `src/agent-progress.ts` parser. Those
   flags are third-party contracts: check them against the vendor's current CLI
   reference rather than from memory, since a wrong flag lands on a real project.
-- `prompts/evaluation.md` is the canonical agent prompt. Avoid duplicate prompt
-  copies. It mirrors DeepEval's own skills, so keep it aligned with
-  `skills/deepeval` and `skills/deepeval-tracing` in the DeepEval repository:
-  component-level evaluation is the required shape, with metrics attached to the
-  spans they judge and any end-to-end metric inside that same suite, and the
-  evaluation runs exactly once, since exploratory runs spend judge money and
-  each one that reaches Confident AI creates another test run. A suite that
-  reports no span level is a failure, enforced by `src/result.ts`. That
-  contract runs after the suite has already spent judge money, so a result it
-  rejects is reported as unverified with its test run and rerun command
-  salvaged, never raised as a wizard failure that discards both.
-- Follow the `deepeval` skill's recommendations by default — three to five
-  metrics, a `GEval` for whatever the product means by a good answer, metric
-  lists in their own module named after the component they score, the
-  `tests/evals/` layout with the dataset in `.dataset.json` loaded by the SDK's
-  own loader, `deepeval test run` over a bare `pytest`, and its per-shape metric
-  defaults. The divergences below are deliberate and each has a reason; anything
-  else should match the skill.
-- The dataset deliberately diverges from the `deepeval` skill, which reaches for
-  `deepeval generate`, targets 30-50 goldens, and forbids hand-written ones.
-  Setup curates 20 out of what the repository already knows and calls no model to
-  invent them: generation is Python-only, and a first run should not spend judge
-  money on data before the user has seen a single score. Reusing a dataset the
-  project already has still takes precedence.
-- Two more divergences, both because setup is a first run rather than an
-  iteration loop: component metrics are required rather than added once
-  end-to-end scores point at a component, and the suite runs once instead of the
-  skill's five rounds.
-- An application in a language neither SDK covers is the one exception, and it
-  never gets a fake component tree: it is evaluated black-box, from a standalone
-  script that calls the application and scores test cases built from goldens,
-  with Python hosting the script rather than being the project's own dependency.
-  `shape` in the result keeps the two apart, and each shape's `levels` are
-  validated against it.
-- Both DeepEval SDKs are in scope, and the prompt carries one spelling table for
-  the pair. Read the spellings off `deepeval`'s `typescript/src` and its Python
-  package rather than translating one language into the other, since the
-  surfaces genuinely differ: synthetic generation, `AsyncConfig`, `CacheConfig`,
-  and LiteLLM are Python-only, and `evalsIterator` is async-only.
-- A component suite is three metrics on the trace, one of which must be
-  `TaskCompletionMetric`, plus one or two on each span worth scoring, so its size
-  follows the component map; a black-box suite is five metrics. Twelve is the
-  ceiling either way, matching `src/result.ts`. Judge metrics are the default
-  whenever a judge is configured, roughly three of them `GEval`s, since judged
-  scoring is what the evaluation is for. Configuring a judge is itself the
-  agreement to spend on it, so never reintroduce a prompt offering a
-  judge-free-only run: it buys nothing and costs the evaluation its point. Judge-free metrics are the
-  no-judge fallback, not a cost saving: `ExactMatchMetric`, `PatternMatchMetric`,
-  `JsonCorrectnessMetric`, and `ToolCorrectnessMetric` score by comparison or
-  validation, though the last two still resolve a model they never ask to score.
-  A slot is never a reason to ship a metric that cannot fail, so the prompt lets
-  the count fall short and say why instead.
-- The evaluation runs once and is never repeated, not even to check a fix: a low
-  score is a finding to report. Only a command that failed before any metric
-  scored may be issued again, once. The agent then closes with a short report —
-  what the run found, what changed, the rerun command, one next step — which must
-  not restate what `summarizeResult` in `src/wizard.ts` already prints.
-- Multi-turn is built only on evidence from the application's code that
-  conversation state crosses turns, never from the product being called a
-  chatbot, and it is an addition to the component-level suite. The `thread`
-  level follows that same test.
-- The prompt's metric table, suite skeletons, and run flags are third-party
-  contracts, so check them against the SDKs rather than from memory: metric names
-  and the fields each one reads against `_required_params`, the skeletons against
-  `skills/deepeval/templates` and `typescript/examples`, and the flags against
-  both `test run` commands, whose short forms disagree — Python's `-i` is
-  `--ignore-errors` while TypeScript's is `--identifier` — which is why the
-  prompt spells every flag out. A metric named there must exist in both SDKs.
-- `src/deepeval.ts` decides where DeepEval lives before setup starts, for both
-  languages. Its install commands are third-party contracts, so check them
-  against Poetry, uv, pip, npm, pnpm, Yarn, and Bun rather than from memory.
-  Never install into an interpreter the machine manages: prefer an existing
-  environment, otherwise a new project `.venv`. The Node install is a regular
-  dependency because component-level instrumentation puts `deepeval/tracing`
-  imports in application code.
+- `prompts/tracing.md` is the canonical agent prompt. Avoid duplicate prompt
+  copies. It mirrors confident-trace's own skills, `skills/confident-tracing`
+  and `skills/confident-otel` in the confident-trace repository, so keep it
+  aligned with them: automatic integrations first, manual spans only where
+  integrations do not reach, AI components only, and no evaluation work.
+- Every API name, import path, flag, and environment variable the prompt names
+  is a third-party contract. Check it against confident-trace's
+  `python/README.md`, `typescript/README.md`, and the package sources rather
+  than from memory: `init()`, the `confident-trace/register` preload, the manual
+  adapters, `span`/`withSpan`, `update_trace`/`updateTrace`, `turn`, the
+  `confident-trace[openai-agents]` extra, `CONFIDENT_OTEL_ENDPOINT`, and the
+  Python 3.10 and Node.js 22 floors. TypeScript has no exit hook, so the prompt
+  must keep requiring `await tracing.shutdown()` in short-lived scripts.
+- Languages without a confident-trace package export through their own
+  OpenTelemetry SDK over OTLP/HTTP with protobuf, never gRPC, with the
+  `x-confident-api-key` header. The prompt makes the agent confirm the endpoint,
+  protocol, and header against
+  https://www.confident-ai.com/docs/integrations/opentelemetry before writing
+  code, and stop when it cannot. The region endpoint comes from the key's
+  `confident_eu_` prefix; only the endpoint is passed to the prompt, never the
+  key.
+- confident-trace reads `CONFIDENT_API_KEY` from the environment and does not
+  load `.env.local`, so the prompt has the run command load that file without
+  reading it, unless the application already uses a dotenv loader.
+- The agent runs the application once, with test data and no side effects. When
+  it needs secrets or services that are not available, it reports `partial`
+  with what is needed and the exact command, and never fakes the run.
+- `src/result.ts` is the result contract: `completed` means the app ran,
+  `partial` means it did not and says what the user must provide, and `failed`
+  carries errors. A rejected result still has its run command and changed files
+  salvaged, and the trace check is still offered.
+- Trace verification uses the documented `GET /v2/traces` with the
+  `CONFIDENT_API_KEY` header the API reads, never `x-confident-api-key` or a
+  bearer token on the API host. It counts only traces created since one minute
+  before step five, checks `traces.length` rather than the cached
+  `totalTraces`, and polls every five seconds for up to three minutes. Links use
+  `/project/<id>/observatory/traces`.
+- Failure never removes anything: instrumentation and credentials stay in
+  place, and the wizard prints the run command, the traces link, and the
+  troubleshooting docs.
+- The telemetry contract has no tracing step yet. Send only existing wire
+  values; `FINAL_STEP` in `src/telemetry.ts` stays `evaluation` until the
+  backend adds one.
+- DeepEval appears nowhere in this repository's user-facing surface: source,
+  prompts, copy, README, or package metadata. `tests/copy.test.ts` enforces it.
+  The evaluation wizard lives in the DeepEval repository.
+- Copy is plain, short sentences with no emoji.
 - `examples/` is git-ignored scratch space for manual end-to-end runs, never
-  part of the published package. A sandbox target app there keeps its support
-  history unlabeled on purpose: curating evaluation datasets is the work being
-  tested, so do not add expected outputs or relevance labels to its data.
+  part of the published package.
 - Terminal color must go through `src/theme.ts`, which honors `NO_COLOR` and
   non-TTY output. Brand violet is only the Confident AI wordmark and name;
   everything else the wizard highlights uses the cyan accent, plus ember for

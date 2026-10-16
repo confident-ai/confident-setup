@@ -8,6 +8,8 @@ export interface GitStatus {
   dirty: boolean;
   files: string[];
   totalChanges: number;
+  /** The repository's top level, so an agent can read a monorepo whole. */
+  gitRoot?: string;
 }
 
 export type CommandRunner = (
@@ -28,13 +30,17 @@ export const inspectGit = async (
   cwd: string,
   runner: CommandRunner = runCommand,
 ): Promise<GitStatus> => {
+  let gitRoot: string | undefined;
   try {
     const repository = await runner(
       "git",
-      ["rev-parse", "--is-inside-work-tree"],
+      ["rev-parse", "--is-inside-work-tree", "--show-toplevel"],
       { cwd },
     );
-    if (repository.stdout.trim() !== "true") {
+    const [inside, topLevel] = repository.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim());
+    if (inside !== "true") {
       return {
         isRepository: false,
         dirty: false,
@@ -42,6 +48,7 @@ export const inspectGit = async (
         totalChanges: 0,
       };
     }
+    gitRoot = topLevel || undefined;
   } catch {
     return {
       isRepository: false,
@@ -66,6 +73,7 @@ export const inspectGit = async (
     dirty: allFiles.length > 0,
     files: allFiles.slice(0, 20),
     totalChanges: allFiles.length,
+    ...(gitRoot ? { gitRoot } : {}),
   };
 };
 

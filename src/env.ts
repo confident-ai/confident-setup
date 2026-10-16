@@ -49,8 +49,8 @@ export const mergeEnvContent = (
 };
 
 /**
- * Parse the subset of dotenv syntax this wizard writes and DeepEval reads, so
- * an existing key can be detected without asking the user to paste it again.
+ * Parse the subset of dotenv syntax this wizard writes and common dotenv
+ * loaders read, so an existing key can be found without asking for it again.
  */
 export const parseEnvContent = (content: string): Record<string, string> => {
   const values: Record<string, string> = {};
@@ -87,7 +87,7 @@ const readIfPresent = async (path: string): Promise<string> => {
   }
 };
 
-/** Values already in `.env.local`, so detection sees what DeepEval will load. */
+/** Values already in `.env.local`, such as a key saved by an earlier run. */
 export const readEnvValues = async (
   cwd: string,
 ): Promise<Record<string, string>> =>

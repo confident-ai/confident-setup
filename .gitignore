@@ -6,5 +6,3 @@ coverage/
 confident-setup
 .env.local
 examples/
-.deepeval/
-.pytest_cache/
