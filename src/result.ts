@@ -16,6 +16,7 @@ export const setupResultSchema = z
     integrations: z.array(z.string().min(1)),
     runCommand: z.string(),
     runSucceeded: z.boolean(),
+    tracedRuns: z.number().int().nonnegative().optional(),
     needsFromUser: z.array(z.string().min(1)).optional(),
     errors: z.array(z.string().min(1)).optional(),
   })

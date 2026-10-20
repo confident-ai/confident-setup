@@ -20,6 +20,18 @@ describe("setup result validation", () => {
     expect(parseSetupResult(validResult)).toEqual(validResult);
   });
 
+  it("accepts how many inputs were traced, as a whole number", () => {
+    expect(parseSetupResult({ ...validResult, tracedRuns: 8 })).toMatchObject({
+      tracedRuns: 8,
+    });
+    expect(() =>
+      parseSetupResult({ ...validResult, tracedRuns: 1.5 }),
+    ).toThrow();
+    expect(() =>
+      parseSetupResult({ ...validResult, tracedRuns: -1 }),
+    ).toThrow();
+  });
+
   it("requires a completed setup to have run the app", () => {
     expect(() =>
       parseSetupResult({ ...validResult, runSucceeded: false }),

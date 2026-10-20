@@ -441,6 +441,12 @@ const signIn = async (
   };
 };
 
+/** The built-in agent gets the new key, so only the user's own shell can differ. */
+const shellKeyDiffers = (credentials: Credentials): boolean => {
+  const shell = process.env[CONFIDENT_API_KEY]?.trim();
+  return Boolean(shell) && shell !== credentials.apiKey;
+};
+
 const prepareResultFile = async (): Promise<{
   directory: string;
   path: string;
@@ -471,7 +477,7 @@ const showOwnAgentPrompt = async (
   note(
     [
       "Paste the prompt into your coding agent as the next message.",
-      "Let it add tracing and run your app once.",
+      "Let it add tracing and run your app on a batch of sample inputs.",
       "Come back here and confirm when it is done.",
       "",
       keyInEnvLocal
@@ -708,6 +714,7 @@ const runBuiltInMode = async (
     resultFile: resultFile.path,
     delivery: "built-in",
     keyInEnvLocal: credentials.inEnvLocal,
+    shellKeyDiffers: shellKeyDiffers(credentials),
     otelEndpoint: otelEndpointForKey(credentials.apiKey),
   });
   try {
@@ -755,6 +762,7 @@ const runOwnAgentMode = async ({
       resultFile: resultFile.path,
       delivery: "pasted",
       keyInEnvLocal: credentials.inEnvLocal,
+      shellKeyDiffers: shellKeyDiffers(credentials),
       otelEndpoint: otelEndpointForKey(credentials.apiKey),
     }),
     resultFile.path,
