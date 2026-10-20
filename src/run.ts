@@ -65,7 +65,13 @@ export const summarizeResult = (result: SetupResult): string => {
   if (result.runCommand.trim()) {
     lines.push(`Run command: ${pc.bold(result.runCommand)}`);
   }
-  lines.push(`App ran: ${result.runSucceeded ? "yes" : "no"}`);
+  lines.push(
+    `App ran: ${result.runSucceeded ? "yes" : "no"}${
+      result.tracedRuns !== undefined
+        ? ` (called your AI ${result.tracedRuns === 1 ? "once" : `${result.tracedRuns} times`})`
+        : ""
+    }`,
+  );
   if (result.errors?.length) {
     lines.push("Issues:", ...bullets(result.errors));
   }

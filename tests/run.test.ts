@@ -8,6 +8,7 @@ import type { SetupResult, SetupResultOutcome } from "../src/result.js";
 import {
   finishAgentRun,
   finishManualRun,
+  summarizeResult,
   type RunContext,
   type RunIo,
 } from "../src/run.js";
@@ -253,4 +254,16 @@ describe("manual setup", () => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe("result summary", () => {
+  it("says how many times the AI was called when the agent reports it", () => {
+    expect(summarizeResult({ ...completed, tracedRuns: 8 })).toContain(
+      "App ran: yes (called your AI 8 times)",
+    );
+    expect(summarizeResult({ ...completed, tracedRuns: 1 })).toContain(
+      "(called your AI once)",
+    );
+    expect(summarizeResult(completed)).not.toContain("called your AI");
+  });
 });

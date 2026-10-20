@@ -13,6 +13,11 @@ export interface AgentPromptContext {
   delivery: PromptDelivery;
   /** Whether `.env.local` holds the key, or only the user's shell does. */
   keyInEnvLocal: boolean;
+  /**
+   * Whether the user's shell exports a different CONFIDENT_API_KEY than the one
+   * in `.env.local`, which most loaders would keep instead of the new key.
+   */
+  shellKeyDiffers?: boolean | undefined;
   /** Derived from the key's region. The key itself never enters the prompt. */
   otelEndpoint: string;
 }
@@ -33,9 +38,17 @@ const describeKey = ({
       : "- API key: CONFIDENT_API_KEY is already in your environment, set by the user's shell rather than .env.local. Rely on the environment and do not write the key anywhere.";
   }
   return keyInEnvLocal
-    ? "- API key: CONFIDENT_API_KEY is in .env.local; load it without reading it. It is not in your environment, and you must not ask for its value."
+    ? "- API key: CONFIDENT_API_KEY is in .env.local; load it without reading it, and you must not ask for its value. If your environment already has a CONFIDENT_API_KEY, it may be an older key for another project, so the .env.local value must replace it."
     : "- API key: CONFIDENT_API_KEY is set in the user's shell environment, not in .env.local. Rely on the environment. If your shell does not have it, report partial and ask the user to export it.";
 };
+
+const describeShellKey = ({
+  keyInEnvLocal,
+  shellKeyDiffers,
+}: AgentPromptContext): string =>
+  keyInEnvLocal && shellKeyDiffers
+    ? "\n- Conflicting key: the user's shell exports a different CONFIDENT_API_KEY, for another project. The run command must override it with the .env.local value, or every trace goes to the wrong project."
+    : "";
 
 const describeRegion = (otelEndpoint: string): string =>
   otelEndpoint === EU_OTEL_TRACES_ENDPOINT
@@ -53,7 +66,7 @@ ${describeGitRoot(context.gitRoot)}
       ? " (also in CONFIDENT_SETUP_RESULT_FILE)"
       : " (CONFIDENT_SETUP_RESULT_FILE is not set for you, so write to this path)"
   }
-${describeKey(context)}
+${describeKey(context)}${describeShellKey(context)}
 ${describeRegion(context.otelEndpoint)}
 
 Only instrument applications in or below the working directory.`;

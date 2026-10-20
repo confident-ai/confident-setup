@@ -88,6 +88,15 @@ describe("canonical prompt", () => {
     expect(prompt).toContain("Do not commit or push");
   });
 
+  it("runs a batch of typical and hard inputs, not a single one", () => {
+    const prompt = getCanonicalPrompt();
+    expect(prompt).toContain("run it on 7 to 10 inputs");
+    expect(prompt).toContain("hard cases that could plausibly trip it up");
+    expect(prompt).toContain("not a failing score");
+    expect(prompt).toContain("`confident_examples`");
+    expect(prompt).toContain("tracedRuns");
+  });
+
   it("never mentions the evaluation SDK", () => {
     expect(getCanonicalPrompt()).not.toMatch(/deepeval/i);
   });
@@ -132,6 +141,34 @@ describe("agent prompt runtime context", () => {
     });
     expect(prompt).toContain("set in the user's shell environment");
     expect(prompt).not.toContain("load it without reading it");
+  });
+
+  it("makes .env.local win over an older key from the shell or .env", () => {
+    const prompt = getCanonicalPrompt();
+    expect(prompt).toContain("the value there must win");
+    expect(prompt).toContain('load_dotenv(".env.local", override=True)');
+    expect(prompt).toContain("set -a; . ./.env.local; set +a;");
+    expect(prompt).toContain("Never add `CONFIDENT_API_KEY` to `.env`");
+  });
+
+  it("warns about a different key in the user's shell", () => {
+    for (const delivery of ["built-in", "pasted"] as const) {
+      const prompt = buildAgentPrompt({
+        ...context,
+        delivery,
+        shellKeyDiffers: true,
+      });
+      expect(prompt).toContain("- Conflicting key:");
+      expect(prompt).toContain("must override it with the .env.local value");
+    }
+    expect(buildAgentPrompt(context)).not.toContain("Conflicting key");
+    expect(
+      buildAgentPrompt({
+        ...context,
+        keyInEnvLocal: false,
+        shellKeyDiffers: true,
+      }),
+    ).not.toContain("Conflicting key");
   });
 
   it("names the region endpoint, never the key", () => {
