@@ -246,12 +246,14 @@ describe("agent checks and execution", () => {
       "safe prompt",
       "super-secret",
       "/tmp/result.json",
+      "/tmp/issues.json",
       runner,
     );
     const [invocation, options] = vi.mocked(runner).mock.calls[0]!;
     expect(invocation.args.join(" ")).not.toContain("super-secret");
     expect(options.env?.CONFIDENT_API_KEY).toBe("super-secret");
     expect(options.env?.CONFIDENT_SETUP_RESULT_FILE).toBe("/tmp/result.json");
+    expect(options.env?.CONFIDENT_SETUP_ISSUES_FILE).toBe("/tmp/issues.json");
     expect(options.stdio).toBe("pipe");
   });
 
@@ -264,6 +266,7 @@ describe("agent checks and execution", () => {
       "safe prompt",
       undefined,
       "/tmp/result.json",
+      "/tmp/issues.json",
       runner,
     );
     expect(vi.mocked(runner).mock.calls[0]?.[1]?.env?.CONFIDENT_API_KEY).toBe(

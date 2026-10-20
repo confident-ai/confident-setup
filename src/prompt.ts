@@ -9,6 +9,8 @@ export interface AgentPromptContext {
   projectDirectory: string;
   gitRoot?: string | undefined;
   resultFile: string;
+  /** Where the agent writes the issues to watch for; the wizard uploads them. */
+  issuesFile: string;
   /** A built-in agent gets the key in its environment; a pasted prompt does not. */
   delivery: PromptDelivery;
   /** Whether `.env.local` holds the key, or only the user's shell does. */
@@ -65,6 +67,11 @@ ${describeGitRoot(context.gitRoot)}
     context.delivery === "built-in"
       ? " (also in CONFIDENT_SETUP_RESULT_FILE)"
       : " (CONFIDENT_SETUP_RESULT_FILE is not set for you, so write to this path)"
+  }
+- Issues destination: ${context.issuesFile}${
+    context.delivery === "built-in"
+      ? " (also in CONFIDENT_SETUP_ISSUES_FILE)"
+      : " (CONFIDENT_SETUP_ISSUES_FILE is not set for you, so write to this path)"
   }
 ${describeKey(context)}${describeShellKey(context)}
 ${describeRegion(context.otelEndpoint)}

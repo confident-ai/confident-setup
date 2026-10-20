@@ -81,6 +81,23 @@ const completionSchema = z.object({
   projectId: z.string().min(1),
 });
 
+const classifierListSchema = z.object({
+  classifiers: z.array(z.object({ id: z.string(), name: z.string() })),
+  totalClassifiers: z.number(),
+});
+
+const createdSchema = z.object({ id: z.string() });
+
+export type ClassifierDataModel = "TRACE" | "SPAN" | "THREAD";
+export type ClassifierList = z.infer<typeof classifierListSchema>;
+export interface ClassifierLabelInput {
+  name: string;
+  description: string;
+  status: "ACTIVE" | "RECOMMENDED";
+  enabled: boolean;
+  polarity: "HIGHER_IS_BETTER" | "LOWER_IS_BETTER" | "NEUTRAL";
+}
+
 export type AuthSession = z.infer<typeof authSessionSchema>;
 export interface AuthSessionContext {
   source: string;
@@ -213,5 +230,61 @@ export class ConfidentApi {
     if (!response.ok) throw await responseError(response);
     const value: unknown = await response.json();
     return completionSchema.parse(value);
+  }
+
+  async listClassifiers(
+    apiKey: string,
+    query: { dataModel: ClassifierDataModel; page: number; pageSize: number },
+  ): Promise<ClassifierList> {
+    const search = new URLSearchParams({
+      dataModel: query.dataModel,
+      page: String(query.page),
+      pageSize: String(query.pageSize),
+    });
+    const body = await this.#withKey(
+      apiKey,
+      `/v2/classifiers?${search.toString()}`,
+    );
+    return envelope(classifierListSchema).parse(body).data;
+  }
+
+  async createClassifier(
+    apiKey: string,
+    body: { name: string; dataModel: ClassifierDataModel; preset: string },
+  ): Promise<{ id: string }> {
+    const created = await this.#withKey(apiKey, "/v2/classifiers", body);
+    return envelope(createdSchema).parse(created).data;
+  }
+
+  async createClassifierLabel(
+    apiKey: string,
+    classifierId: string,
+    body: ClassifierLabelInput,
+  ): Promise<{ id: string }> {
+    const created = await this.#withKey(
+      apiKey,
+      `/v2/classifiers/${encodeURIComponent(classifierId)}/labels`,
+      body,
+    );
+    return envelope(createdSchema).parse(created).data;
+  }
+
+  /** A public API call made with the project's key; a body makes it a POST. */
+  async #withKey(
+    apiKey: string,
+    path: string,
+    body?: unknown,
+  ): Promise<unknown> {
+    const response = await this.#dependencies.fetch(`${this.#baseUrl}${path}`, {
+      ...(body === undefined
+        ? {}
+        : { method: "POST", body: JSON.stringify(body) }),
+      headers: {
+        CONFIDENT_API_KEY: apiKey,
+        ...(body === undefined ? {} : { "content-type": "application/json" }),
+      },
+    });
+    if (!response.ok) throw await responseError(response);
+    return response.json();
   }
 }

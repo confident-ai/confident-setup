@@ -65,6 +65,7 @@ import {
   type PromptDelivery,
   type SetupMode,
 } from "./modes.js";
+import { uploadIssues, watchIssuesFile, type IssuesWatcher } from "./issues.js";
 import { buildAgentPrompt } from "./prompt.js";
 import { readSetupResult } from "./result.js";
 import {
@@ -453,10 +454,31 @@ const shellKeyDiffers = (credentials: Credentials): boolean => {
 const prepareResultFile = async (): Promise<{
   directory: string;
   path: string;
+  issuesPath: string;
 }> => {
   const directory = await mkdtemp(join(tmpdir(), "confident-setup-"));
-  return { directory, path: join(directory, "result.json") };
+  return {
+    directory,
+    path: join(directory, "result.json"),
+    issuesPath: join(directory, "issues.json"),
+  };
 };
+
+/** Uploads the issues the agent writes while it works, before its batch runs. */
+const watchAgentIssues = (
+  path: string,
+  args: CliArgs,
+  credentials: Credentials,
+): IssuesWatcher =>
+  watchIssuesFile({
+    path,
+    upload: (issues) =>
+      uploadIssues(
+        new ConfidentApi(credentials.apiUrl ?? args.apiUrl),
+        credentials.apiKey,
+        issues,
+      ),
+  });
 
 const PROMPT_START =
   "----- Confident AI setup prompt: copy from the next line -----";
@@ -631,6 +653,7 @@ const executeAgentWithProgress = async (
   prompt: string,
   apiKey: string,
   resultFile: string,
+  issuesFile: string,
 ): Promise<void> => {
   const output = taskLog({
     title: `Running ${agent.label} to add tracing`,
@@ -647,6 +670,7 @@ const executeAgentWithProgress = async (
       prompt,
       apiKey,
       resultFile,
+      issuesFile,
       undefined,
       (line) => {
         for (const message of parseAgentProgressLine(
@@ -781,11 +805,13 @@ const runBuiltInMode = async (
     projectDirectory: args.projectDir,
     gitRoot,
     resultFile: resultFile.path,
+    issuesFile: resultFile.issuesPath,
     delivery: "built-in",
     keyInEnvLocal: credentials.inEnvLocal,
     shellKeyDiffers: shellKeyDiffers(credentials),
     otelEndpoint: otelEndpointForKey(credentials.apiKey),
   });
+  const issues = watchAgentIssues(resultFile.issuesPath, args, credentials);
   try {
     try {
       await executeAgentWithProgress(
@@ -794,10 +820,13 @@ const runBuiltInMode = async (
         prompt,
         credentials.apiKey,
         resultFile.path,
+        resultFile.issuesPath,
       );
     } catch (error) {
       log.warn(nextSteps(context));
       throw error;
+    } finally {
+      await issues.stop();
     }
     return await finishAgentRun(
       await readSetupResult(resultFile.path),
@@ -829,6 +858,7 @@ const runOwnAgentMode = async ({
       projectDirectory: args.projectDir,
       gitRoot,
       resultFile: resultFile.path,
+      issuesFile: resultFile.issuesPath,
       delivery: "pasted",
       keyInEnvLocal: credentials.inEnvLocal,
       shellKeyDiffers: shellKeyDiffers(credentials),
@@ -839,8 +869,11 @@ const runOwnAgentMode = async ({
     credentials.inEnvLocal,
   );
 
-  const decision = requiredPrompt<"finished" | "later">(
-    await select({
+  // The user's agent writes the issues file while the wizard waits here.
+  const issues = watchAgentIssues(resultFile.issuesPath, args, credentials);
+  let choice: "finished" | "later" | symbol;
+  try {
+    choice = await select<"finished" | "later">({
       message: "Waiting for your agent. Choose one when it is done.",
       options: [
         {
@@ -854,8 +887,11 @@ const runOwnAgentMode = async ({
           hint: "Keep the prompt and finish on your own",
         },
       ],
-    }),
-  );
+    });
+  } finally {
+    await issues.stop();
+  }
+  const decision = requiredPrompt<"finished" | "later">(choice);
   if (decision === "later") {
     // The agent may still write its result, so the file stays where it is.
     log.info(
