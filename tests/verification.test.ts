@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  buildOnboardingUrl,
   buildTraceUrl,
   buildTracesUrl,
+  TRACE_PAGE_SIZE,
   TRACE_POLL_INTERVAL_MS,
   TRACE_POLL_TIMEOUT_MS,
   verifyFirstTrace,
@@ -70,6 +72,7 @@ describe("first trace verification", () => {
     ).resolves.toEqual({
       status: "found",
       trace: { uuid: "trace/1", name: "answer" },
+      count: 1,
       traceUrl:
         "https://app.example/project/project-1/observatory/traces/trace%2F1",
       tracesUrl: "https://app.example/project/project-1/observatory/traces",
@@ -83,7 +86,7 @@ describe("first trace verification", () => {
       "https://api.example/v2/traces",
     );
     expect(request.searchParams.get("start")).toBe(since.toISOString());
-    expect(request.searchParams.get("pageSize")).toBe("1");
+    expect(request.searchParams.get("pageSize")).toBe(String(TRACE_PAGE_SIZE));
     expect(String(url)).not.toContain(options.apiKey);
     expect(init).toEqual({ headers: { CONFIDENT_API_KEY: options.apiKey } });
   });
@@ -100,8 +103,27 @@ describe("first trace verification", () => {
     ).resolves.toEqual({
       status: "found",
       trace: { uuid: "trace/1" },
+      count: 1,
       tracesUrl: "https://app.example",
     });
+  });
+
+  it("counts every trace on the page and keeps the newest", async () => {
+    const batch = Array.from({ length: 9 }, (_, index) => ({
+      ...trace,
+      uuid: `trace-${index}`,
+    }));
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(traceList(batch));
+    await expect(
+      verifyFirstTrace(options, { fetch, ...clock() }),
+    ).resolves.toMatchObject({
+      status: "found",
+      count: 9,
+      trace: { uuid: "trace-0" },
+    });
+    expect(fetch).toHaveBeenCalledOnce();
   });
 
   it("stops at once when the key is rejected", async () => {
@@ -186,6 +208,9 @@ describe("first trace verification", () => {
   it("builds the observatory links", () => {
     expect(buildTracesUrl("https://app.example/", "p")).toBe(
       "https://app.example/project/p/observatory/traces",
+    );
+    expect(buildOnboardingUrl("https://app.example/")).toBe(
+      "https://app.example/onboarding",
     );
     expect(buildTraceUrl("https://app.example", "p", "t")).toBe(
       "https://app.example/project/p/observatory/traces/t",

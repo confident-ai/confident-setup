@@ -6,8 +6,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { SetupResult, SetupResultOutcome } from "../src/result.js";
 import {
+  canOpenBrowser,
   finishAgentRun,
   finishManualRun,
+  handoffUrl,
   summarizeResult,
   type RunContext,
   type RunIo,
@@ -25,6 +27,7 @@ const tracesUrl = "https://app.example/project/project-1/observatory/traces";
 const found: TraceVerification = {
   status: "found",
   trace: { uuid: "trace-1", name: "answer" },
+  count: 9,
   traceUrl: `${tracesUrl}/trace-1`,
   tracesUrl,
 };
@@ -44,7 +47,11 @@ const accepted = (result: SetupResult): SetupResultOutcome => ({
 });
 
 const fakeIo = (
-  answers: { ran?: boolean; verification?: TraceVerification } = {},
+  answers: {
+    ran?: boolean;
+    verification?: TraceVerification;
+    browserOpens?: boolean;
+  } = {},
 ) => {
   const shown: string[] = [];
   const io = {
@@ -58,34 +65,93 @@ const fakeIo = (
       return answers.ran ?? true;
     }),
     verify: vi.fn(async () => answers.verification ?? found),
+    celebrate: vi.fn(
+      (message: string, title: string) => void shown.push(title, message),
+    ),
+    openBrowser: vi.fn(async () => answers.browserOpens ?? true),
   } satisfies RunIo;
   return { io, text: () => shown.join("\n") };
 };
 
 describe("after a completed agent run", () => {
-  it("verifies straight away and links the trace", async () => {
+  it("verifies straight away, opens the traces, and celebrates", async () => {
     const { io, text } = fakeIo();
     await expect(
       finishAgentRun(accepted(completed), context, io),
     ).resolves.toBe("verified");
     expect(io.confirmRan).not.toHaveBeenCalled();
     expect(io.verify).toHaveBeenCalledOnce();
-    expect(text()).toContain("Trace: answer");
-    expect(text()).toContain(`${tracesUrl}/trace-1`);
+    expect(io.openBrowser).toHaveBeenCalledExactlyOnceWith(tracesUrl);
+    expect(io.celebrate).toHaveBeenCalledOnce();
+    expect(io.note).not.toHaveBeenCalledWith(
+      expect.anything(),
+      "First trace received",
+    );
+    expect(text()).toContain("You're all set");
+    expect(text()).toContain("Congratulations, your traces are in.");
+    expect(text()).toContain("9 traces from your app reached Confident AI.");
+    expect(text()).toContain(
+      `Opened Confident AI in your browser: ${tracesUrl}`,
+    );
+    expect(text()).toContain(completed.runCommand);
     expect(text()).toContain("Integrations: OpenAI");
   });
 
-  it("names the trace id when the project is unknown", async () => {
+  it("sends a new account to the onboarding page", async () => {
+    const { io } = fakeIo();
+    await finishAgentRun(
+      accepted(completed),
+      { ...context, newAccount: true },
+      io,
+    );
+    expect(io.openBrowser).toHaveBeenCalledExactlyOnceWith(
+      "https://app.example/onboarding",
+    );
+  });
+
+  it("opens the app when a reused key leaves the project unknown", async () => {
     const { io, text } = fakeIo({
-      verification: { status: "found", trace: { uuid: "trace-9" }, tracesUrl },
+      verification: {
+        status: "found",
+        trace: { uuid: "trace-9" },
+        count: 1,
+        tracesUrl: "https://app.example",
+      },
     });
     await finishAgentRun(
       accepted(completed),
       { ...context, projectId: undefined },
       io,
     );
-    expect(text()).toContain("Trace ID: trace-9");
-    expect(text()).toContain("https://app.example");
+    expect(io.openBrowser).toHaveBeenCalledExactlyOnceWith(
+      "https://app.example",
+    );
+    expect(text()).toContain("1 trace from your app reached Confident AI.");
+  });
+
+  it("prints the link when the browser cannot open", async () => {
+    const { io, text } = fakeIo({
+      browserOpens: false,
+      verification: { ...found, count: 25 } as TraceVerification,
+    });
+    await finishAgentRun(accepted(completed), context, io);
+    expect(text()).toContain(`See them in Confident AI: ${tracesUrl}`);
+    expect(text()).not.toContain("Opened Confident AI");
+    expect(text()).toContain("25+ traces from your app");
+  });
+
+  it("keeps the key out of the celebration", async () => {
+    const { io, text } = fakeIo();
+    await finishAgentRun(
+      accepted({
+        ...completed,
+        runCommand: `CONFIDENT_API_KEY=${context.apiKey} python app.py`,
+      }),
+      context,
+      io,
+    );
+    expect(text()).not.toContain(context.apiKey);
+    expect(text()).toContain("[redacted]");
   });
 
   it("prints next steps when no trace arrives", async () => {
@@ -95,6 +161,8 @@ describe("after a completed agent run", () => {
     await expect(
       finishAgentRun(accepted(completed), context, io),
     ).resolves.toBe("unverified");
+    expect(io.openBrowser).not.toHaveBeenCalled();
+    expect(io.celebrate).not.toHaveBeenCalled();
     expect(text()).toContain("No trace reached Confident AI within 3 minutes");
     expect(text()).toContain(completed.runCommand);
     expect(text()).toContain(tracesUrl);
@@ -265,5 +333,25 @@ describe("result summary", () => {
       "(called your AI once)",
     );
     expect(summarizeResult(completed)).not.toContain("called your AI");
+  });
+});
+
+describe("browser handoff", () => {
+  it("picks onboarding, then the project's traces, then the app", () => {
+    expect(handoffUrl({ ...context, newAccount: true })).toBe(
+      "https://app.example/onboarding",
+    );
+    expect(handoffUrl(context)).toBe(tracesUrl);
+    expect(handoffUrl({ ...context, projectId: undefined })).toBe(
+      "https://app.example",
+    );
+  });
+
+  it("only opens a browser from a local interactive terminal", () => {
+    expect(canOpenBrowser({}, true)).toBe(true);
+    expect(canOpenBrowser({}, false)).toBe(false);
+    expect(canOpenBrowser({}, undefined)).toBe(false);
+    expect(canOpenBrowser({ SSH_CONNECTION: "1 2 3 4" }, true)).toBe(false);
+    expect(canOpenBrowser({ CI: "true" }, true)).toBe(false);
   });
 });

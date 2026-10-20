@@ -78,6 +78,13 @@ npm run build
   before step five, checks `traces.length` rather than the cached
   `totalTraces`, and polls every five seconds for up to three minutes. Links use
   `/project/<id>/observatory/traces`.
+- Once traces arrive, polling stops and the wizard opens the browser: a new
+  account goes to `/onboarding`, which shows its first traces arriving and then
+  opens the project's traces; anyone else goes to
+  `/project/<id>/observatory/traces`, or the app when a reused key leaves the
+  project unknown. It never opens one over SSH, in CI, or without a TTY, and it
+  always prints the link. Success ends on a congratulations panel and an outro
+  with no issue or support links; only other endings point at help.
 - Failure never removes anything: instrumentation and credentials stay in
   place, and the wizard prints the run command, the traces link, and the
   troubleshooting docs.

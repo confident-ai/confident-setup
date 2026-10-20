@@ -1,4 +1,7 @@
 import { spawn } from "node:child_process";
+import { access, constants, readdir } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 export type AgentKind = "claude" | "codex" | "cursor";
 export type AgentPermission = "read-only" | "full";
@@ -14,8 +17,19 @@ export interface AgentInvocation {
   args: string[];
 }
 
+/** Where an executable was found, so a failed check can say what to do. */
+export type AgentSource =
+  "path" | "install-dir" | "desktop-app" | "editor-extension";
+
+export interface AgentCandidate {
+  command: string;
+  source: AgentSource;
+}
+
 export interface AgentCheck {
+  /** With `command` resolved to the executable that answered. */
   agent: AgentDefinition;
+  source?: AgentSource;
   discovered: boolean;
   authenticated: boolean;
   readOnlyReady: boolean;
@@ -124,10 +138,223 @@ const authArguments: Record<AgentKind, string[]> = {
   cursor: ["status", "--format", "json"],
 };
 
+const loginArguments: Record<AgentKind, string[]> = {
+  claude: ["auth", "login"],
+  codex: ["login"],
+  cursor: ["login"],
+};
+
+const shellQuote = (value: string): string =>
+  /^[\w./-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
+
+/** The command a user runs once so we can launch the agent for them. */
+export const signInCommand = (agent: AgentDefinition): string =>
+  [agent.command, ...loginArguments[agent.kind]].map(shellQuote).join(" ");
+
+/** One line per agent for the "no agent to launch" note. */
+export const describeAgentCheck = (check: AgentCheck): string => {
+  const { agent } = check;
+  if (!check.discovered) return `${agent.label}: not found`;
+  const where =
+    check.source === "desktop-app"
+      ? " (in the Claude desktop app)"
+      : check.source === "editor-extension"
+        ? " (from the Codex editor extension)"
+        : check.source === "install-dir"
+          ? ` (at ${agent.command})`
+          : "";
+  if (check.readOnlyReady) return `${agent.label}${where}: ready`;
+  if (!check.authenticated) {
+    return `${agent.label}${where}: installed, not signed in for terminal use.\n  Sign in once with: ${signInCommand(agent)}`;
+  }
+  return `${agent.label}${where}: installed, but its read-only check failed.${
+    check.detail ? `\n  ${check.detail}` : ""
+  }`;
+};
+
 export const getAuthInvocation = (agent: AgentDefinition): AgentInvocation => ({
   command: agent.command,
   args: authArguments[agent.kind],
 });
+
+const isExecutable = async (path: string): Promise<boolean> => {
+  try {
+    await access(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const versionOf = (name: string): number[] =>
+  (/\d+(?:\.\d+)+/.exec(name)?.[0] ?? "0").split(".").map(Number);
+
+const compareVersionsDescending = (left: string, right: string): number => {
+  const [a, b] = [versionOf(left), versionOf(right)];
+  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+    const difference = (b[index] ?? 0) - (a[index] ?? 0);
+    if (difference) return difference;
+  }
+  return 0;
+};
+
+/** A literal path segment, or any directory whose name matches. */
+type Segment = string | RegExp;
+
+/**
+ * Executables under `root` along `segments`, newest version first wherever a
+ * pattern matches several directories, so the most recent build wins.
+ */
+const findExecutables = async (
+  root: string,
+  segments: Segment[],
+): Promise<string[]> => {
+  const [segment, ...rest] = segments;
+  if (segment === undefined) return (await isExecutable(root)) ? [root] : [];
+  if (typeof segment === "string") {
+    return findExecutables(join(root, segment), rest);
+  }
+  const entries = await readdir(root).catch(() => [] as string[]);
+  const found: string[] = [];
+  for (const entry of entries
+    .filter((name) => segment.test(name))
+    .sort(compareVersionsDescending)) {
+    found.push(...(await findExecutables(join(root, entry), rest)));
+  }
+  return found;
+};
+
+interface Location {
+  root: string | undefined;
+  segments: Segment[];
+  source: AgentSource;
+}
+
+const ANY = /./;
+/** The Codex extension for VS Code and its forks ships the CLI it runs. */
+const CODEX_EXTENSION = /^openai\.chatgpt-/;
+
+/**
+ * Where each agent lands when it is not on PATH: its own installer's
+ * directory, or a copy bundled with a desktop app or editor extension.
+ * A wrong guess costs nothing, since a location is only used when it exists
+ * and answers `--version`.
+ */
+const agentLocations = (
+  kind: AgentKind,
+  home: string,
+  platform: NodeJS.Platform,
+  env: NodeJS.ProcessEnv,
+): Location[] => {
+  const editorDirs = [".vscode", ".vscode-insiders", ".cursor", ".windsurf"];
+  if (platform === "win32") {
+    const exe = {
+      claude: "claude.exe",
+      codex: "codex.exe",
+      cursor: "cursor-agent.exe",
+    }[kind];
+    if (kind === "claude") {
+      return [
+        { root: home, segments: [".local", "bin", exe], source: "install-dir" },
+        // Seen in the desktop app's logs as claude-code\<version>\claude.exe.
+        {
+          root: env.APPDATA,
+          segments: ["Claude", "claude-code", ANY, exe],
+          source: "desktop-app",
+        },
+      ];
+    }
+    if (kind === "cursor") {
+      return [
+        {
+          root: env.LOCALAPPDATA,
+          segments: ["cursor-agent", exe],
+          source: "install-dir",
+        },
+      ];
+    }
+    return editorDirs.map((dir) => ({
+      root: home,
+      segments: [dir, "extensions", CODEX_EXTENSION, "bin", ANY, exe],
+      source: "editor-extension",
+    }));
+  }
+
+  const command = { claude: "claude", codex: "codex", cursor: "cursor-agent" }[
+    kind
+  ];
+  const locations: Location[] = [
+    { root: home, segments: [".local", "bin", command], source: "install-dir" },
+  ];
+  if (kind === "claude") {
+    locations.push({
+      root: home,
+      segments: [".claude", "local", "claude"],
+      source: "install-dir",
+    });
+    if (platform === "darwin") {
+      locations.push({
+        root: home,
+        segments: [
+          "Library",
+          "Application Support",
+          "Claude",
+          "claude-code",
+          ANY,
+          ANY,
+          "claude.app",
+          "Contents",
+          "MacOS",
+          "claude",
+        ],
+        source: "desktop-app",
+      });
+    }
+  }
+  if (kind === "codex") {
+    for (const dir of editorDirs) {
+      locations.push({
+        root: home,
+        segments: [dir, "extensions", CODEX_EXTENSION, "bin", ANY, "codex"],
+        source: "editor-extension",
+      });
+    }
+  }
+  return locations;
+};
+
+/**
+ * PATH first, then the places a terminal launched from a GUI or a fresh shell
+ * may not have on PATH.
+ */
+export const findAgentCandidates = async (
+  agent: AgentDefinition,
+  {
+    home = homedir(),
+    platform = process.platform,
+    env = process.env,
+  }: {
+    home?: string;
+    platform?: NodeJS.Platform;
+    env?: NodeJS.ProcessEnv;
+  } = {},
+): Promise<AgentCandidate[]> => {
+  const candidates: AgentCandidate[] = [
+    { command: agent.command, source: "path" },
+  ];
+  for (const { root, segments, source } of agentLocations(
+    agent.kind,
+    home,
+    platform,
+    env,
+  )) {
+    if (!root) continue;
+    for (const command of await findExecutables(root, segments)) {
+      candidates.push({ command, source });
+    }
+  }
+  return candidates;
+};
 
 export const runAgent: AgentRunner = (
   invocation,
@@ -194,30 +421,43 @@ export const runAgent: AgentRunner = (
   });
 
 export const checkAgent = async (
-  agent: AgentDefinition,
+  definition: AgentDefinition,
   cwd: string,
   runner: AgentRunner = runAgent,
+  candidates?: AgentCandidate[],
 ): Promise<AgentCheck> => {
-  try {
-    await runner(
-      { command: agent.command, args: ["--version"] },
-      { cwd, timeoutMs: 10_000 },
-    );
-  } catch {
+  let found: AgentCandidate | undefined;
+  for (const candidate of candidates ??
+    (await findAgentCandidates(definition))) {
+    try {
+      await runner(
+        { command: candidate.command, args: ["--version"] },
+        { cwd, timeoutMs: 10_000 },
+      );
+      found = candidate;
+      break;
+    } catch {
+      // Try the next location.
+    }
+  }
+  if (!found) {
     return {
-      agent,
+      agent: definition,
       discovered: false,
       authenticated: false,
       readOnlyReady: false,
       detail: "Executable not found.",
     };
   }
+  const agent = { ...definition, command: found.command };
+  const source = found.source;
 
   try {
     await runner(getAuthInvocation(agent), { cwd, timeoutMs: 15_000 });
   } catch (error) {
     return {
       agent,
+      source,
       discovered: true,
       authenticated: false,
       readOnlyReady: false,
@@ -236,6 +476,7 @@ export const checkAgent = async (
     );
     return {
       agent,
+      source,
       discovered: true,
       authenticated: true,
       readOnlyReady: true,
@@ -243,6 +484,7 @@ export const checkAgent = async (
   } catch (error) {
     return {
       agent,
+      source,
       discovered: true,
       authenticated: true,
       readOnlyReady: false,

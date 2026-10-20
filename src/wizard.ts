@@ -19,6 +19,7 @@ import pc from "picocolors";
 
 import {
   checkAgent,
+  describeAgentCheck,
   executeAgent,
   supportedAgents,
   type AgentDefinition,
@@ -67,6 +68,7 @@ import {
 import { buildAgentPrompt } from "./prompt.js";
 import { readSetupResult } from "./result.js";
 import {
+  canOpenBrowser,
   finishAgentRun,
   finishManualRun,
   nextSteps,
@@ -438,6 +440,7 @@ const signIn = async (
     projectId: completion.projectId,
     inEnvLocal: true,
     reused: false,
+    newAccount: onboarding.state === "new_user",
   };
 };
 
@@ -455,51 +458,86 @@ const prepareResultFile = async (): Promise<{
   return { directory, path: join(directory, "result.json") };
 };
 
+const PROMPT_START =
+  "----- Confident AI setup prompt: copy from the next line -----";
+const PROMPT_END = "----- End of prompt -----";
+
+const printPrompt = (prompt: string): void => {
+  process.stdout.write(
+    `\n${accent(PROMPT_START)}\n${prompt}\n${accent(PROMPT_END)}\n\n`,
+  );
+};
+
 const showOwnAgentPrompt = async (
   delivery: PromptDelivery,
   prompt: string,
+  projectDirectory: string,
   resultFile: string,
   keyInEnvLocal: boolean,
 ): Promise<void> => {
+  let copied = false;
   if (delivery === "clipboard") {
     try {
       await clipboard.write(prompt);
-      log.success("Copied the tracing setup prompt to the clipboard.");
+      copied = true;
     } catch (error) {
       log.warn(
         `Could not copy the prompt: ${error instanceof Error ? error.message : String(error)}`,
       );
-      process.stdout.write(`\n${prompt}\n\n`);
     }
-  } else {
-    process.stdout.write(`\n${prompt}\n\n`);
   }
+  if (copied) {
+    log.success(
+      [
+        "Copied the setup prompt to your clipboard.",
+        pc.dim(
+          `${prompt.split("\n").length} lines. It tells your agent to add tracing, run your app once, and report back.`,
+        ),
+      ].join("\n"),
+    );
+  } else {
+    printPrompt(prompt);
+  }
+  const paste = process.platform === "darwin" ? "Cmd+V" : "Ctrl+V";
+  const steps = [
+    `Open your coding agent in ${accent(projectDirectory)}`,
+    copied
+      ? `Paste the prompt (${paste}) as a new message and send it`
+      : "Copy everything between the two marker lines above, paste it as a new message, and send it",
+    "Let it add tracing and run your app. This can take a few minutes",
+    `Come back here and choose ${accent("The agent finished")}`,
+  ];
   note(
     [
-      "Paste the prompt into your coding agent as the next message.",
-      "Let it add tracing and run your app on a batch of sample inputs.",
-      "Come back here and confirm when it is done.",
+      ...steps.map((step, index) => `${accent(`${index + 1}.`)} ${step}`),
       "",
-      keyInEnvLocal
-        ? "The prompt tells the agent to load CONFIDENT_API_KEY from .env.local without reading it."
-        : "Your key is in your shell environment, not .env.local. Make sure your agent's shell has CONFIDENT_API_KEY.",
-      `The prompt already includes the result path: ${resultFile}`,
+      pc.dim(
+        keyInEnvLocal
+          ? "Your API key stays in .env.local. The agent loads it without reading it."
+          : "Your key is in your shell environment, not .env.local. Make sure your agent's shell has CONFIDENT_API_KEY.",
+      ),
+      pc.dim(`The agent writes its result to ${resultFile}`),
     ].join("\n"),
-    "What to do next",
+    "Do this now",
   );
 };
 
+/** Success is the end of the story; only other endings point at help. */
 const completionOutro = (finish: RunFinish): string =>
-  [
-    finish === "verified"
-      ? `${brand("Confident AI")} ${pc.dim("tracing setup complete. Your first trace is in.")}`
-      : `${brand("Confident AI")} ${pc.dim("tracing setup finished without a confirmed trace.")}`,
-    "",
-    `If you encountered an issue, please open a GitHub issue: ${GITHUB_ISSUE_URL}`,
-    "",
-    pc.dim(`- Contact support: ${SUPPORT_URL}`),
-    pc.dim(`- Tracing documentation: ${TRACING_DOCS_URL}`),
-  ].join("\n");
+  finish === "verified"
+    ? [
+        `${brand("Confident AI")} tracing is live.`,
+        "",
+        pc.dim(`- Tracing documentation: ${TRACING_DOCS_URL}`),
+      ].join("\n")
+    : [
+        `${brand("Confident AI")} ${pc.dim("tracing setup finished without a confirmed trace.")}`,
+        "",
+        `If you encountered an issue, please open a GitHub issue: ${GITHUB_ISSUE_URL}`,
+        "",
+        pc.dim(`- Contact support: ${SUPPORT_URL}`),
+        pc.dim(`- Tracing documentation: ${TRACING_DOCS_URL}`),
+      ].join("\n");
 
 const completionTelemetry = (
   finish: RunFinish,
@@ -534,7 +572,7 @@ const verifyWithProgress = async (
           ),
       },
     );
-    if (result.status === "found") waiting.stop("First trace found.");
+    if (result.status === "found") waiting.stop("Your traces are in.");
     else if (result.status === "timeout") waiting.error("No trace yet.");
     else waiting.error("Could not check for traces.");
     return result;
@@ -575,6 +613,16 @@ const runIo = (
       }),
     ),
   verify: () => verifyWithProgress(args, credentials, since),
+  celebrate: (message, title) => note(message, accent(title)),
+  openBrowser: async (url) => {
+    if (!canOpenBrowser(process.env, process.stdout.isTTY)) return false;
+    try {
+      await open(url);
+      return true;
+    } catch {
+      return false;
+    }
+  },
 });
 
 const executeAgentWithProgress = async (
@@ -622,38 +670,59 @@ const executeAgentWithProgress = async (
 const discoverReadyAgents = async (
   projectDirectory: string,
 ): Promise<AgentDefinition[]> => {
-  const checking = spinner();
-  checking.start("Searching for available coding agents…");
-  const checks = await Promise.all(
-    supportedAgents.map((agent) => checkAgent(agent, projectDirectory)),
-  );
-  const readyAgents = checks
-    .filter((check) => check.readOnlyReady)
-    .map((check) => check.agent);
-  if (readyAgents.length) {
-    checking.stop(
-      `Detected ${listLabels(
-        readyAgents.map((agent) => agent.label),
-        "and",
-      )}.`,
+  for (;;) {
+    const checking = spinner();
+    checking.start("Searching for available coding agents…");
+    const checks = await Promise.all(
+      supportedAgents.map((agent) => checkAgent(agent, projectDirectory)),
     );
-    return readyAgents;
-  }
+    const readyAgents = checks
+      .filter((check) => check.readOnlyReady)
+      .map((check) => check.agent);
+    if (readyAgents.length) {
+      checking.stop(
+        `Detected ${listLabels(
+          readyAgents.map((agent) => agent.label),
+          "and",
+        )}.`,
+      );
+      return readyAgents;
+    }
 
-  checking.stop("No usable coding agents found.");
-  const details = checks.map((check) => {
-    const status = !check.discovered
-      ? "not installed"
-      : !check.authenticated
-        ? "not authenticated"
-        : "read-only smoke check failed";
-    return `- ${check.agent.label}: ${status}`;
-  });
-  note(
-    `${details.join("\n")}\n\nPaste the prompt into your own coding agent, or follow the tracing quickstart instead.`,
-    "No agent to launch for you",
-  );
-  return [];
+    checking.stop("No coding agent we can launch for you.");
+    const signedOut = checks.some(
+      (check) => check.discovered && !check.authenticated,
+    );
+    note(
+      [
+        ...checks.map((check) => `- ${describeAgentCheck(check)}`),
+        "",
+        signedOut
+          ? "Sign in and check again, or paste the prompt into your own coding agent."
+          : "Paste the prompt into your own coding agent, or follow the tracing quickstart instead.",
+      ].join("\n"),
+      "No agent to launch for you",
+    );
+    if (!signedOut) return [];
+    const next = requiredPrompt<"retry" | "skip">(
+      await select({
+        message: "Signed in?",
+        options: [
+          {
+            label: "Check again",
+            value: "retry",
+            hint: "After running the sign-in command in another terminal",
+          },
+          {
+            label: "Continue without",
+            value: "skip",
+            hint: "Paste the prompt yourself or follow the quickstart",
+          },
+        ],
+      }),
+    );
+    if (next === "skip") return [];
+  }
 };
 
 interface StepFive {
@@ -765,14 +834,14 @@ const runOwnAgentMode = async ({
       shellKeyDiffers: shellKeyDiffers(credentials),
       otelEndpoint: otelEndpointForKey(credentials.apiKey),
     }),
+    args.projectDir,
     resultFile.path,
     credentials.inEnvLocal,
   );
 
   const decision = requiredPrompt<"finished" | "later">(
     await select({
-      message:
-        "After you paste the prompt into your coding agent and it finishes, continue here.",
+      message: "Waiting for your agent. Choose one when it is done.",
       options: [
         {
           label: "The agent finished",
@@ -885,6 +954,7 @@ export const runWizard = async (args: CliArgs): Promise<void> => {
       context: {
         appUrl: args.appUrl,
         projectId: credentials.projectId,
+        newAccount: credentials.newAccount,
         apiKey: credentials.apiKey,
       },
       io: runIo(args, credentials, since),

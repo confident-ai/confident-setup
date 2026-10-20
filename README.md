@@ -4,7 +4,8 @@
 
 Confident Setup takes your AI application from setup to its first trace in
 Confident AI. Sign in, choose a project, and let a coding agent add tracing and
-run your app. The wizard confirms the trace arrived and shows you where to find it.
+run your app. The wizard confirms the traces arrived and opens them in your
+browser.
 
 - **Tracing for your stack:** Python and TypeScript use
   [`confident-trace`](https://github.com/confident-ai/confident-trace). Other
@@ -13,8 +14,9 @@ run your app. The wizard confirms the trace arrived and shows you where to find 
   into your own coding agent, or follow the tracing quickstart by hand.
 - **Reuse your credentials:** an existing `CONFIDENT_API_KEY` can skip sign-in
   and key creation after validation.
-- **Confirm the first trace:** run your app once, check that Confident AI received
-  it, and get the next steps if anything is missing.
+- **Confirm the first traces:** run your app on a batch of sample inputs, check
+  that Confident AI received them, and open them in your browser, or get the
+  next steps if anything is missing.
 
 ## Quickstart
 
@@ -38,8 +40,8 @@ If the project already has a `CONFIDENT_API_KEY`, in the shell environment or in
 checks the key with one read of the trace list, then skips steps one to three
 and writes nothing. A key Confident AI rejects falls back to signing in. With
 `--proj-id`, the key is reused only when Confident AI confirms it belongs to that
-project. A reused key's project is unknown to the wizard, so the final trace link
-points at the app and names the trace ID instead of opening the trace directly.
+project. A reused key's project is unknown to the wizard, so it opens the app
+instead of the project's traces once they arrive.
 
 1. **Sign in.** Opens browser device pairing and retrieves onboarding state from
    Confident AI.
@@ -49,18 +51,25 @@ points at the app and names the trace ID instead of opening the trace directly.
    sets mode `0600`, and makes sure Git ignores the file.
 4. **Choose how to add tracing.**
    - a detected coding agent, named in the prompt when Claude Code, Codex, or
-     Cursor CLI is installed and authenticated;
+     Cursor CLI is installed and authenticated. Besides `PATH`, the wizard looks
+     in `~/.local/bin`, the Claude desktop app's bundled Claude Code, and the
+     CLI bundled with the Codex editor extension. An agent that is installed but
+     not signed in is named with the command to sign in, and the wizard can
+     check again;
    - a prompt you paste into your own coding agent;
    - the [tracing quickstart](https://www.confident-ai.com/docs/llm-tracing/quickstart),
      followed by hand.
 5. **Run your app and confirm the first trace.** The agent installs
    `confident-trace` with the project's own package manager, prefers its
    automatic integrations, adds manual spans only where they do not reach, and
-   runs the smallest real entry point once with test data. Python and
+   runs the smallest real entry point on 7 to 10 test inputs. Python and
    TypeScript use `confident-trace`; any other language exports through its own
    OpenTelemetry SDK over OTLP/HTTP. The wizard validates the agent's structured
-   result, then polls Confident AI's trace list for up to three minutes and links
-   the first trace it finds.
+   result, then polls Confident AI's trace list for up to three minutes. Once
+   traces arrive it stops, shows how many, and opens your browser: a new
+   account goes to the onboarding page, which shows the traces arriving, and an
+   existing project goes to its traces page. Over SSH, in CI, or without a
+   terminal it prints the link instead.
 
 When the agent cannot run the app, for example because a provider key or a
 database is missing, it says what is needed and the exact command to run. The

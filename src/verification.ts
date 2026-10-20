@@ -32,7 +32,10 @@ export interface FoundTrace {
 export type TraceVerification =
   | {
       status: "found";
+      /** The newest trace. */
       trace: FoundTrace;
+      /** Traces found since setup started, up to `TRACE_PAGE_SIZE`. */
+      count: number;
       /** Absent when the project is unknown, as on the reused-key path. */
       traceUrl?: string;
       tracesUrl: string;
@@ -63,6 +66,8 @@ export interface TraceVerificationDependencies {
 /** Ingest to queryable takes roughly 35-95 s, so three minutes leaves margin. */
 export const TRACE_POLL_INTERVAL_MS = 5_000;
 export const TRACE_POLL_TIMEOUT_MS = 3 * 60_000;
+/** Enough rows to count a 7-10 input batch, so the count rarely caps. */
+export const TRACE_PAGE_SIZE = 25;
 
 const defaultDependencies: TraceVerificationDependencies = {
   fetch: globalThis.fetch,
@@ -78,6 +83,13 @@ export const buildTracesUrl = (appUrl: string, projectId?: string): string =>
     ? `${trimSlashes(appUrl)}/project/${encodeURIComponent(projectId)}/observatory/traces`
     : trimSlashes(appUrl);
 
+/**
+ * The web onboarding page, which shows a new account's first traces arriving
+ * and then opens the project's traces.
+ */
+export const buildOnboardingUrl = (appUrl: string): string =>
+  `${trimSlashes(appUrl)}/onboarding`;
+
 export const buildTraceUrl = (
   appUrl: string,
   projectId: string,
@@ -88,7 +100,7 @@ export const buildTraceUrl = (
 export const buildTraceListRequest = (apiUrl: string, since: Date): string => {
   const query = new URLSearchParams({
     start: since.toISOString(),
-    pageSize: "1",
+    pageSize: String(TRACE_PAGE_SIZE),
   });
   return `${trimSlashes(apiUrl)}/v2/traces?${query.toString()}`;
 };
@@ -115,8 +127,9 @@ const describeRefusal = (status: number, detail: string): string => {
 
 /**
  * Poll the documented trace list for the first trace created since setup
- * started. Newest traces come first by default, so one row is enough. The key
- * travels only in the header the API reads, never in the URL or a message.
+ * started, and stop at the first page that has any. Newest traces come first by
+ * default, so the first row is the newest and the page size caps the count. The
+ * key travels only in the header the API reads, never in the URL or a message.
  */
 export const verifyFirstTrace = async (
   options: TraceVerificationOptions,
@@ -151,10 +164,12 @@ export const verifyFirstTrace = async (
         );
         if (parsed.success) {
           answered = true;
-          const [trace] = parsed.data.data.traces;
+          const { traces } = parsed.data.data;
+          const [trace] = traces;
           if (trace) {
             return {
               status: "found",
+              count: traces.length,
               trace: {
                 uuid: trace.uuid,
                 ...(trace.name ? { name: trace.name } : {}),

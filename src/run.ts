@@ -7,7 +7,12 @@ import {
 } from "./modes.js";
 import type { SetupResult, SetupResultOutcome } from "./result.js";
 import { accent, alert } from "./theme.js";
-import { buildTracesUrl, type TraceVerification } from "./verification.js";
+import {
+  buildOnboardingUrl,
+  buildTracesUrl,
+  TRACE_PAGE_SIZE,
+  type TraceVerification,
+} from "./verification.js";
 
 /** How step 5 ended, which decides the outro and the telemetry result. */
 export type RunFinish = "verified" | "unverified" | "deferred" | "failed";
@@ -16,6 +21,11 @@ export interface RunContext {
   appUrl: string;
   /** Unknown when an existing key was reused, so links fall back to the app. */
   projectId?: string | undefined;
+  /**
+   * Whether sign-in created the account. The web onboarding page then shows
+   * its first traces arriving, so the browser opens there.
+   */
+  newAccount?: boolean | undefined;
   /** Held only to scrub it from anything shown. It is never printed. */
   apiKey: string;
 }
@@ -33,6 +43,10 @@ export interface RunIo {
   confirmRan: (message: string) => Promise<boolean>;
   /** Poll Confident AI for the first trace. */
   verify: () => Promise<TraceVerification>;
+  /** The congratulations panel shown once traces arrive. */
+  celebrate: (message: string, title: string) => void;
+  /** Open a Confident AI page. False when it could not or should not. */
+  openBrowser: (url: string) => Promise<boolean>;
 }
 
 /** An agent can echo the key into a command; this keeps it off the screen. */
@@ -45,8 +59,32 @@ const guard = (context: RunContext, io: RunIo): RunIo => {
     warn: (message) => io.warn(scrub(message)),
     note: (message, title) => io.note(scrub(message), title),
     confirmRan: (message) => io.confirmRan(scrub(message)),
+    celebrate: (message, title) => io.celebrate(scrub(message), title),
   };
 };
+
+/**
+ * Where the browser goes once traces arrive: a new account's onboarding page,
+ * which shows them arriving, else the project's traces, else the app when a
+ * reused key leaves the project unknown.
+ */
+export const handoffUrl = (context: RunContext): string =>
+  context.newAccount
+    ? buildOnboardingUrl(context.appUrl)
+    : buildTracesUrl(context.appUrl, context.projectId);
+
+/** A remote shell, CI, or piped output has no browser for us to open. */
+export const canOpenBrowser = (
+  env: NodeJS.ProcessEnv,
+  isTTY: boolean | undefined,
+): boolean => Boolean(isTTY) && !env.SSH_CONNECTION && !env.CI;
+
+const describeTraceCount = (count: number): string =>
+  count >= TRACE_PAGE_SIZE
+    ? `${TRACE_PAGE_SIZE}+ traces`
+    : count === 1
+      ? "1 trace"
+      : `${count} traces`;
 
 const bullets = (items: string[]): string[] =>
   items.map((item) => `  - ${item}`);
@@ -97,18 +135,22 @@ const verifyAndReport = async (
 ): Promise<RunFinish> => {
   const verification = await io.verify();
   if (verification.status === "found") {
-    const { trace } = verification;
-    io.note(
+    const url = handoffUrl(context);
+    const opened = await io.openBrowser(url);
+    io.celebrate(
       [
-        `Trace: ${trace.name ?? "unnamed"}`,
-        ...(verification.traceUrl
-          ? [accent(verification.traceUrl)]
-          : [
-              `Trace ID: ${trace.uuid}`,
-              `Open ${accent(context.appUrl)} and find this trace in the project this key belongs to.`,
-            ]),
+        pc.bold(accent("Congratulations, your traces are in.")),
+        "",
+        `${describeTraceCount(verification.count)} from your app reached Confident AI.`,
+        "",
+        opened
+          ? `Opened Confident AI in your browser: ${accent(url)}`
+          : `See them in Confident AI: ${accent(url)}`,
+        ...(runCommand?.trim()
+          ? ["", "Send more traces with:", pc.bold(runCommand)]
+          : []),
       ].join("\n"),
-      "First trace received",
+      "You're all set",
     );
     return "verified";
   }

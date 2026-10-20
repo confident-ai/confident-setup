@@ -19,6 +19,8 @@ export interface Credentials {
   projectId?: string;
   inEnvLocal: boolean;
   reused: boolean;
+  /** Whether sign-in created the account, rather than choosing a project. */
+  newAccount?: boolean;
   /** Set when a reused key belongs to another region than `--api-url`. */
   apiUrl?: string;
 }
