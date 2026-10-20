@@ -15,6 +15,7 @@ const context: AgentPromptContext = {
   projectDirectory: "/repo/apps/agent",
   gitRoot: "/repo",
   resultFile: "/tmp/result.json",
+  issuesFile: "/tmp/issues.json",
   delivery: "built-in",
   keyInEnvLocal: true,
   otelEndpoint: OTEL_TRACES_ENDPOINT,
@@ -31,6 +32,7 @@ describe("canonical prompt", () => {
     expect(prompt.startsWith("# Confident AI tracing setup")).toBe(true);
     expect(prompt.length).toBeGreaterThan(4000);
     expect(prompt).toContain("CONFIDENT_SETUP_RESULT_FILE");
+    expect(prompt).toContain("CONFIDENT_SETUP_ISSUES_FILE");
     for (const literal of [
       "completed",
       "partial",
@@ -97,6 +99,16 @@ describe("canonical prompt", () => {
     expect(prompt).toContain("tracedRuns");
   });
 
+  it("has the agent write the issues to watch for before changing code", () => {
+    const prompt = getCanonicalPrompt();
+    const orient = prompt.slice(
+      prompt.indexOf("## Step 1"),
+      prompt.indexOf("## Step 2"),
+    );
+    expect(orient).toContain("CONFIDENT_SETUP_ISSUES_FILE");
+    expect(orient).toContain("Never mention code, files");
+  });
+
   it("never mentions the evaluation SDK", () => {
     expect(getCanonicalPrompt()).not.toMatch(/deepeval/i);
   });
@@ -109,6 +121,8 @@ describe("agent prompt runtime context", () => {
     expect(prompt).toContain("- Git root: /repo");
     expect(prompt).toContain("- Result destination: /tmp/result.json");
     expect(prompt).toContain("also in CONFIDENT_SETUP_RESULT_FILE");
+    expect(prompt).toContain("- Issues destination: /tmp/issues.json");
+    expect(prompt).toContain("also in CONFIDENT_SETUP_ISSUES_FILE");
   });
 
   it("says when there is no repository to orient from", () => {
@@ -131,6 +145,7 @@ describe("agent prompt runtime context", () => {
       "CONFIDENT_API_KEY is in .env.local; load it without reading it",
     );
     expect(prompt).toContain("CONFIDENT_SETUP_RESULT_FILE is not set for you");
+    expect(prompt).toContain("CONFIDENT_SETUP_ISSUES_FILE is not set for you");
   });
 
   it("points at the shell when the key never reached .env.local", () => {

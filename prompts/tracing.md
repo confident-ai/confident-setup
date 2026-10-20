@@ -20,7 +20,8 @@ README is the authority when anything here is unclear:
   source, commands, logs, or the result file. The runtime context says where it
   is.
 - Tracing only. Do not add evaluations, metrics, datasets, or test suites, and
-  do not refactor code that tracing does not need.
+  do not refactor code that tracing does not need. The one exception is the
+  issues file in step 1.
 - Keep the diff small. Tracing must not change what the application returns, and
   must not break its build, tests, or startup.
 - Instrument AI components only: LLM calls, agent loops, tool calls, and
@@ -43,7 +44,27 @@ README is the authority when anything here is unclear:
    server code) and whether it already sets up OpenTelemetry.
 3. If nothing here calls an LLM, retrieves documents, or uses tools, stop and
    report `failed` with that reason.
-4. Python, JavaScript, and TypeScript applications follow step 2. Any other
+4. Before you change any code, write the issues to watch for. The setup wizard
+   uploads them as soon as the file appears, so the first traces are checked
+   for them. Write 4 to 8 issues, each something this application specifically
+   must or must not do, drawn from its tools, business rules, policies, and the
+   constraints in its prompts:
+   - `name`: the problem as someone would describe seeing it, such as "Refund
+     approved over policy limit". Never a generic category such as
+     "Hallucination" or "Bad answer".
+   - `description`: when it applies, stated as what a trace shows: the input,
+     the tool calls and their results, or the output. State the condition
+     rather than restating the name.
+   - Never mention code, files, functions, variables, or the repository in
+     either field.
+
+   Write them as a JSON array of `{"name", "description"}` to the path in the
+   `CONFIDENT_SETUP_ISSUES_FILE` environment variable, or, if it is not set,
+   the issues destination from the runtime context. Write it once, in one go.
+   It may be written outside the project, like the result file. Do not mention
+   the issues in your summary.
+
+5. Python, JavaScript, and TypeScript applications follow step 2. Any other
    language follows step 3.
 
 ## Step 2 — Python, JavaScript, and TypeScript: `confident-trace`
@@ -291,7 +312,8 @@ secrets.
 
 Write the result to the path in the `CONFIDENT_SETUP_RESULT_FILE` environment
 variable. If that variable is not set, use the result destination from the
-runtime context. It is the only file outside the project you may write. Before
+runtime context. Apart from the issues file, it is the only file outside the
+project you may write. Before
 finishing, write valid UTF-8 JSON there with this exact shape:
 
 ```json

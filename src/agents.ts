@@ -499,12 +499,14 @@ export const executeAgent = async (
   prompt: string,
   apiKey: string | undefined,
   resultFile: string,
+  issuesFile: string,
   runner: AgentRunner = runAgent,
   onProgressLine?: (line: string) => void,
 ): Promise<void> => {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     CONFIDENT_SETUP_RESULT_FILE: resultFile,
+    CONFIDENT_SETUP_ISSUES_FILE: issuesFile,
   };
   if (apiKey) env.CONFIDENT_API_KEY = apiKey;
   else delete env.CONFIDENT_API_KEY;

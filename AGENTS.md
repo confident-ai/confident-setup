@@ -6,6 +6,13 @@ This repository contains the standalone Confident Setup Wizard. Keep it focused
 on adding Confident AI tracing to an application, running it once, and
 confirming the first trace arrived.
 
+The one addition: while it orients, the agent writes the issues this
+application is likely to have to `CONFIDENT_SETUP_ISSUES_FILE`, and
+`src/issues.ts` adds them as labels to the project's "Issues" classifier
+(exactly that name, created if missing) before the batch runs, so the first
+traces are checked for them. That upload stops at its first failure and never
+fails setup.
+
 ## Commands
 
 ```sh
@@ -45,7 +52,7 @@ npm run build
   copies. It mirrors confident-trace's own skills, `skills/confident-tracing`
   and `skills/confident-otel` in the confident-trace repository, so keep it
   aligned with them: automatic integrations first, manual spans only where
-  integrations do not reach, AI components only, and no evaluation work.
+  integrations do not reach, AI components only, and no evaluation work beyond the issues file.
 - Every API name, import path, flag, and environment variable the prompt names
   is a third-party contract. Check it against confident-trace's
   `python/README.md`, `typescript/README.md`, and the package sources rather
