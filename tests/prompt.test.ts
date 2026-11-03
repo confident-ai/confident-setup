@@ -90,6 +90,21 @@ describe("canonical prompt", () => {
     expect(prompt).toContain("Do not commit or push");
   });
 
+  it("captures a voice agent's call audio instead of faking a batch", () => {
+    const prompt = getCanonicalPrompt();
+    for (const name of [
+      "LiveKit Agents",
+      "Pipecat",
+      "record=True",
+      "AudioBufferProcessor(num_channels=2, auto_start_recording=True)",
+      "Media.from_bytes",
+      "Media.fromBytes",
+    ]) {
+      expect(prompt).toContain(name);
+    }
+    expect(prompt).toContain("Never synthesize speech");
+  });
+
   it("runs a batch of typical and hard inputs, not a single one", () => {
     const prompt = getCanonicalPrompt();
     expect(prompt).toContain("run it on 7 to 10 inputs");
