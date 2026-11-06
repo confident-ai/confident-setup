@@ -39,10 +39,11 @@ README is the authority when anything here is unclear:
 2. For each application there, note its language and runtime version, its
    package manager, its entry point, and the LLM providers and frameworks it
    calls, such as OpenAI, Anthropic, LangChain, LangGraph, LlamaIndex, CrewAI,
-   Pydantic AI, the OpenAI Agents SDK, the Vercel AI SDK, Mastra, LiveKit
-   Agents, or Pipecat. Note whether its code is bundled (webpack, Vite,
-   esbuild, or a framework that bundles server code) and whether it already
-   sets up OpenTelemetry. Note too whether it is a voice agent: it takes calls
+   Pydantic AI, the OpenAI Agents SDK, the Vercel AI SDK, Mastra, Google ADK,
+   Spring AI, LiveKit Agents, or Pipecat. Note whether its code is bundled
+   (webpack, Vite, esbuild, or a framework that bundles server code), whether
+   it already sets up OpenTelemetry, and whether it is deployed on Amazon
+   Bedrock AgentCore. Note too whether it is a voice agent: it takes calls
    or speech, through LiveKit, Pipecat, a telephony provider, a realtime
    speech model, or its own speech-to-text and text-to-speech. A voice agent
    also follows "Voice agents" in step 2.
@@ -299,7 +300,50 @@ nothing, and report `failed` naming what you could not confirm.
 - Header: `x-confident-api-key`, its value read from `CONFIDENT_API_KEY` in the
   environment at runtime.
 
-Then:
+Then pick one of the two cases below.
+
+### An OpenTelemetry-native framework
+
+Some frameworks emit their own OpenTelemetry spans, and Confident AI maps them
+into agent, LLM, and tool spans on arrival. For these, export the spans the
+framework already emits and add no spans of your own:
+
+| Framework  | Languages | How Confident AI recognises its spans                                            |
+| ---------- | --------- | -------------------------------------------------------------------------------- |
+| Google ADK | Go, Java  | `gcp.vertex.agent.*` attributes                                                  |
+| Spring AI  | Java      | `spring.ai.kind`, or `gen_ai.*` spans from the Spring Boot instrumentation scope |
+
+Turn on the framework's own tracing and export it to the endpoint above:
+
+- **Google ADK for Go.** Call `telemetry.New(ctx)` from
+  `google.golang.org/adk/telemetry` (`google.golang.org/adk/v2/telemetry` on
+  v2), then `SetGlobalOtelProviders()` on the result, and defer its
+  `Shutdown(ctx)`. ADK builds the OTLP/HTTP exporter itself from
+  `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` (the full endpoint, with `/v1/traces`)
+  and `OTEL_EXPORTER_OTLP_HEADERS`. Set the traces variable, not
+  `OTEL_EXPORTER_OTLP_ENDPOINT`, which also turns on ADK's log exporter. Set
+  `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true`, or the spans
+  carry no inputs or outputs. Never pass `WithOtelToCloud(true)`.
+- **Google ADK for Java.** ADK traces through `GlobalOpenTelemetry`, so
+  register an OpenTelemetry SDK globally with an OTLP/HTTP exporter before the
+  agent runs: build it with `OpenTelemetrySdk.builder()...buildAndRegisterGlobal()`,
+  or use the SDK's autoconfigure module or the OpenTelemetry Java agent with
+  the `OTEL_EXPORTER_OTLP_*` variables. Set
+  `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=true`, or the spans carry no inputs or
+  outputs.
+- **Spring AI.** Spring AI reports through Micrometer Observation. Export it
+  over OTLP/HTTP the way the application's Spring Boot version does, and turn
+  on the prompt and completion content its observability settings leave off.
+
+Run the batch, then check that the spans show as agent, LLM, and tool spans
+with their inputs and outputs. If they arrive as plain spans without them, the
+framework is not emitting what Confident AI maps: add spans manually around
+the gaps, as in the next case.
+
+### Any other framework: manual spans
+
+A framework not in the table is instrumented by hand, even if it emits
+OpenTelemetry of its own.
 
 1. Add the SDK and its OTLP/HTTP exporter with the project's own dependency
    tooling.
@@ -311,6 +355,24 @@ Then:
    `confident.span.output` as strings. Look up any other `confident.*` attribute
    on the docs page rather than guessing it.
 4. Flush or shut down the provider before a short-lived process exits.
+
+### Agents deployed on Amazon Bedrock AgentCore
+
+AgentCore is where the agent runs, not what traces it. Its own runtime span
+only records the invocation (`InvokeAgentRuntime`, with `aws.*` attributes);
+the LLM and tool spans come from the framework inside the agent. So pick the
+case above by that framework: an ADK agent on AgentCore follows Google ADK, and
+a hand-written Go or Java agent gets manual spans. Then:
+
+- Set `DISABLE_ADOT_OBSERVABILITY=true` on the agent runtime, so AgentCore's
+  default ADOT settings (CloudWatch endpoint and `x-aws-*` headers) are not
+  applied.
+- Set the `OTEL_EXPORTER_OTLP_*` variables in the runtime's environment
+  variables, with the key from a secret the runtime already reads, never in
+  the image.
+- The runtime's environment only exists once deployed. If you cannot run the
+  deployed agent, run it locally with the same variables, or report `partial`
+  with the deploy step and the exact command.
 
 ## Step 4 — Load the key without reading it
 

@@ -82,6 +82,23 @@ describe("canonical prompt", () => {
     );
   });
 
+  it("exports OpenTelemetry-native frameworks and agents on AgentCore", () => {
+    const prompt = getCanonicalPrompt();
+    for (const name of [
+      "google.golang.org/adk/telemetry",
+      "SetGlobalOtelProviders()",
+      "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+      "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true",
+      "WithOtelToCloud(true)",
+      "GlobalOpenTelemetry",
+      "ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=true",
+      "Spring AI",
+      "DISABLE_ADOT_OBSERVABILITY=true",
+    ]) {
+      expect(prompt).toContain(name);
+    }
+  });
+
   it("keeps the agent away from the key file and out of evaluation work", () => {
     const prompt = getCanonicalPrompt();
     expect(prompt).toContain("Never open, print, parse, search");
